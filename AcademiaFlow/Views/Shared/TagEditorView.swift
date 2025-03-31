@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct TagEditorView: View {
-    @Binding var tags: [String]
+    @Binding var tags: Array<String>
     @State private var newTag = ""
     @State private var isEditing = false
     @FocusState private var isFocused: Bool

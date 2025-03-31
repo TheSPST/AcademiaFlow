@@ -9,7 +9,7 @@ struct NewDocumentView: View {
     @State private var documentType: DocumentType = .paper
     @State private var citationStyle: CitationStyle = .apa
     @State private var template: DocumentTemplate = .default
-    @State private var tags: [String] = []
+    @State private var tags: Array<String> = []
     
     var body: some View {
         NavigationStack {

@@ -7,7 +7,7 @@ protocol DocumentManageable {
     var title: String { get set }
     var content: String { get set }
     var documentType: DocumentType { get set }
-    var tags: [String] { get set }
+    var tags: Array<String> { get set }
     var createdAt: Date { get }
     var updatedAt: Date { get set }
 }

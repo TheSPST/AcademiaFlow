@@ -7,11 +7,11 @@ final class Note: Identifiable {
     var title: String
     var content: String
     var timestamp: Date
-    var tags: [String]
+    var tags: Array<String>
     
     @Relationship(inverse: \Document.notes) var document: Document?
     
-    init(title: String = "", content: String = "", tags: [String] = []) {
+    init(title: String = "", content: String = "", tags: Array<String> = []) {
         self.id = UUID()
         self.title = title
         self.content = content
@@ -26,7 +26,7 @@ struct NoteSnapshot: Sendable {
     let title: String
     let content: String
     let timestamp: Date
-    let tags: [String]
+    let tags: Array<String>
     
     init(from note: Note) {
         self.id = note.id
@@ -39,7 +39,7 @@ struct NoteSnapshot: Sendable {
 
 // MARK: - Note Management
 extension Note {
-    func update(title: String? = nil, content: String? = nil, tags: [String]? = nil) {
+    func update(title: String? = nil, content: String? = nil, tags: Array<String>? = nil) {
         if let title = title {
             self.title = title
         }

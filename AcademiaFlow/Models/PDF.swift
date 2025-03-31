@@ -8,7 +8,7 @@ final class PDF {
     var title: String?
     var authors: [String]
     var addedAt: Date
-    var tags: [String]
+    var tags: Array<String>
     
     @Relationship(deleteRule: .cascade) var notes: [Note]
     @Relationship(deleteRule: .cascade) var references: [Reference]
@@ -17,7 +17,7 @@ final class PDF {
          fileURL: URL,
          title: String? = nil,
          authors: [String] = [],
-         tags: [String] = []) {
+         tags: Array<String> = []) {
         self.fileName = fileName
         self.fileURL = fileURL
         self.title = title
