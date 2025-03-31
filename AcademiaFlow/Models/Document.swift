@@ -69,6 +69,8 @@ struct DocumentSnapshot: Sendable {
     let tags: [String]
     let citationStyle: CitationStyle
     let template: DocumentTemplate
+    let createdAt: Date
+    let updatedAt: Date
     
     init(from document: Document) {
         self.id = document.persistentModelID
@@ -78,5 +80,7 @@ struct DocumentSnapshot: Sendable {
         self.tags = document.tags
         self.citationStyle = document.citationStyle
         self.template = document.template
+        self.createdAt = document.createdAt
+        self.updatedAt = document.updatedAt
     }
 }

@@ -18,7 +18,7 @@ protocol VersionControlled {
 }
 
 protocol Exportable {
-    func prepareForExport() async throws -> Data
+    func prepareForExport(as format: ExportFormat) async throws -> Data
 }
 
 protocol Annotatable {

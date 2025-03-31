@@ -18,9 +18,14 @@ final class DocumentDetailViewModel: ObservableObject {
     @Published var activeTab: Tab = .editor
     @Published var isEditing = false
     @Published var showingExportOptions = false
+    @Published var showingVersionHistory = false
+    @Published var showingReferences = false
     @Published var selectedExportFormat: ExportFormat?
     @Published var exportedFile: ExportedFile?
     @Published var isExporting = false
+    @Published var exportError: ExportError?
+    @Published var showingErrorAlert = false
+    @Published var exportProgress: Double?
     
     private let document: Document
     
@@ -38,9 +43,14 @@ final class DocumentDetailViewModel: ObservableObject {
     
     func prepareExport(as format: ExportFormat) async {
         do {
+            exportProgress = 0.1
             let snapshot = DocumentSnapshot(from: document)
             let service = DefaultDocumentExportService()
+            
+            exportProgress = 0.3
             let url = try await service.export(snapshot)
+            
+            exportProgress = 0.7
             let data = try Data(contentsOf: url)
             
             await MainActor.run {
@@ -48,9 +58,21 @@ final class DocumentDetailViewModel: ObservableObject {
                 exportedFile = ExportedFile(data: data, format: format)
                 showingExportOptions = false
                 isExporting = true
+                exportProgress = 1.0
+            }
+            
+        } catch let error as ExportError {
+            await MainActor.run {
+                exportError = error
+                showingErrorAlert = true
+                exportProgress = nil
             }
         } catch {
-            print("Export failed: \(error.localizedDescription)")
+            await MainActor.run {
+                exportError = .conversionFailed
+                showingErrorAlert = true
+                exportProgress = nil
+            }
         }
     }
 }
@@ -85,31 +107,33 @@ struct DocumentDetailView: View {
             toolbarItems
         }
         .sheet(isPresented: $viewModel.showingExportOptions) {
-            ExportOptionsSheet(
-                document: document,
-                isExporting: $viewModel.isExporting,
-                exportedFile: $viewModel.exportedFile,
-                selectedFormat: $viewModel.selectedExportFormat,
-                onExport: { format in
-                    Task {
-                        await viewModel.prepareExport(as: format)
-                    }
-                }
-            )
+            ExportOptionsSheet(viewModel: viewModel)
         }
         .fileExporter(
             isPresented: $viewModel.isExporting,
             document: viewModel.exportedFile,
             contentType: viewModel.selectedExportFormat?.contentType ?? .pdf,
-            defaultFilename: document.title
+            defaultFilename: "\(document.title).\(viewModel.selectedExportFormat?.fileExtension ?? "pdf")"
         ) { result in
             switch result {
             case .success(let url):
                 print("Exported successfully to \(url)")
-            case .failure(let error):
-                print("Export failed: \(error.localizedDescription)")
+            case .failure:
+                viewModel.exportError = .fileCreationFailed
+                viewModel.showingErrorAlert = true
             }
             viewModel.exportedFile = nil
+            viewModel.exportProgress = nil
+        }
+        .alert("Export Error",
+               isPresented: $viewModel.showingErrorAlert,
+               presenting: viewModel.exportError) { error in
+            Button("OK") {
+                viewModel.exportError = nil
+                viewModel.exportProgress = nil
+            }
+        } message: { error in
+            Text(error.localizedDescription)
         }
     }
     
@@ -135,24 +159,98 @@ struct DocumentDetailView: View {
                 }
             }
             
-            DocumentControlsMenu(
-                showingExportOptions: $viewModel.showingExportOptions,
-                document: document
-            )
+            Button {
+                viewModel.showingExportOptions = true
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
         }
     }
 }
 
-// MARK: - Supporting Types
-enum Tab: String, CaseIterable, Identifiable {
-    case editor = "Editor"
-    case outline = "Outline"
-    case preview = "Preview"
+struct ExportOptionsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var viewModel: DocumentDetailViewModel
     
-    var id: String { rawValue }
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        Task { await viewModel.prepareExport(as: .pdf) }
+                    } label: {
+                        HStack {
+                            Label("PDF Document", systemImage: "doc.fill")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    
+                    Button {
+                        Task { await viewModel.prepareExport(as: .markdown) }
+                    } label: {
+                        HStack {
+                            Label("Markdown", systemImage: "doc.text.fill")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    
+                    Button {
+                        Task { await viewModel.prepareExport(as: .plainText) }
+                    } label: {
+                        HStack {
+                            Label("Plain Text", systemImage: "doc.text")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Choose Format")
+                } footer: {
+                    Text("Select a format to export your document")
+                }
+            }
+            .navigationTitle("Export Document")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
 }
 
-extension Tab: Hashable {}
+// MARK: - File Type
+struct ExportedFile: FileDocument {
+    let data: Data
+    let format: ExportFormat
+    
+    static var readableContentTypes: [UTType] { [.pdf, .plainText] }
+    
+    init(data: Data, format: ExportFormat) {
+        self.data = data
+        self.format = format
+    }
+    
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+        format = .pdf // Default format for reading
+    }
+    
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
 
 // MARK: - Supporting Views
 struct DocumentControlsMenu: View {
@@ -194,47 +292,6 @@ struct DocumentControlsMenu: View {
     }
 }
 
-struct ExportOptionsSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let document: Document
-    @Binding var isExporting: Bool
-    @Binding var exportedFile: ExportedFile?
-    @Binding var selectedFormat: ExportFormat?
-    let onExport: (ExportFormat) async -> Void
-    
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    ForEach(ExportFormat.allCases, id: \.self) { format in
-                        Button {
-                            Task {
-                                await onExport(format)
-                            }
-                        } label: {
-                            HStack {
-                                Text(format.displayName)
-                                Spacer()
-                                Image(systemName: "arrow.right.doc.on.clipboard")
-                            }
-                        }
-                    }
-                } header: {
-                    Text("Choose Format")
-                } footer: {
-                    Text("Select a format to export your document")
-                }
-            }
-            .navigationTitle("Export Document")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-        }
-    }
-}
-
 struct DocumentOutlineView: View {
     let document: Document
     
@@ -244,27 +301,16 @@ struct DocumentOutlineView: View {
     }
 }
 
-// Make ExportedFile conform to Sendable since it's used in async context
-struct ExportedFile: FileDocument, Sendable {
-    let data: Data
-    let format: ExportFormat
+// MARK: - Tab
+enum Tab: String, CaseIterable, Identifiable {
+    case editor = "Editor"
+    case outline = "Outline"
+    case preview = "Preview"
     
-    static var readableContentTypes: [UTType] { [.pdf, .plainText] }
-    
-    init(data: Data, format: ExportFormat) {
-        self.data = data
-        self.format = format
-    }
-    
-    init(configuration: ReadConfiguration) throws {
-        data = configuration.file.regularFileContents ?? Data()
-        format = .pdf // Default format for reading
-    }
-    
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: data)
-    }
+    var id: String { rawValue }
 }
+
+extension Tab: Hashable {}
 
 #Preview {
     NavigationStack {
