@@ -2,29 +2,79 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 
-struct DocumentDetailView: View {
-    @Bindable var document: Document
-    @State private var activeTab: Tab = .editor
-    @State private var isEditing = false
-    @State private var showingExportOptions = false
-    @State private var selectedExportFormat: ExportFormat?
-    @State private var exportedFile: ExportedFile?
-    @State private var isExporting = false
+// MARK: - Protocols
+protocol DocumentDisplayable {
+    var title: String { get }
+    var content: String { get }
+}
+
+protocol DocumentExportable {
+    func export(as format: ExportFormat) async throws -> URL
+}
+
+// MARK: - View Models
+@MainActor
+final class DocumentDetailViewModel: ObservableObject {
+    @Published var activeTab: Tab = .editor
+    @Published var isEditing = false
+    @Published var showingExportOptions = false
+    @Published var selectedExportFormat: ExportFormat?
+    @Published var exportedFile: ExportedFile?
+    @Published var isExporting = false
     
-    enum Tab: String {
-        case editor = "Editor"
-        case outline = "Outline"
-        case preview = "Preview"
+    private let document: Document
+    
+    init(document: Document) {
+        self.document = document
+    }
+    
+    func setActiveTab(_ tab: Tab) {
+        activeTab = tab
+    }
+    
+    func toggleEditing() {
+        isEditing.toggle()
+    }
+    
+    func prepareExport(as format: ExportFormat) async {
+        do {
+            let snapshot = DocumentSnapshot(from: document)
+            let service = DefaultDocumentExportService()
+            let url = try await service.export(snapshot)
+            let data = try Data(contentsOf: url)
+            
+            await MainActor.run {
+                selectedExportFormat = format
+                exportedFile = ExportedFile(data: data, format: format)
+                showingExportOptions = false
+                isExporting = true
+            }
+        } catch {
+            print("Export failed: \(error.localizedDescription)")
+        }
+    }
+}
+
+// MARK: - Views
+struct DocumentDetailView: View {
+    @StateObject private var viewModel: DocumentDetailViewModel
+    @Bindable private var document: Document
+    
+    init(document: Document) {
+        self.document = document
+        self._viewModel = StateObject(wrappedValue: DocumentDetailViewModel(document: document))
     }
     
     var body: some View {
         VStack(spacing: 0) {
-            TabView(selection: $activeTab) {
-                DocumentEditView(document: document, isEditing: $isEditing)
+            TabView(selection: Binding(
+                get: { viewModel.activeTab },
+                set: { viewModel.setActiveTab($0) }
+            )) {
+                DocumentEditView(document: document, isEditing: $viewModel.isEditing)
                     .tag(Tab.editor)
                 DocumentOutlineView(document: document)
                     .tag(Tab.outline)
-                
                 DocumentPreviewView(document: document)
                     .tag(Tab.preview)
             }
@@ -34,18 +84,23 @@ struct DocumentDetailView: View {
         .toolbar {
             toolbarItems
         }
-        .sheet(isPresented: $showingExportOptions) {
+        .sheet(isPresented: $viewModel.showingExportOptions) {
             ExportOptionsSheet(
                 document: document,
-                isExporting: $isExporting,
-                exportedFile: $exportedFile,
-                selectedFormat: $selectedExportFormat
+                isExporting: $viewModel.isExporting,
+                exportedFile: $viewModel.exportedFile,
+                selectedFormat: $viewModel.selectedExportFormat,
+                onExport: { format in
+                    Task {
+                        await viewModel.prepareExport(as: format)
+                    }
+                }
             )
         }
         .fileExporter(
-            isPresented: $isExporting,
-            document: exportedFile,
-            contentType: selectedExportFormat?.contentType ?? .pdf,
+            isPresented: $viewModel.isExporting,
+            document: viewModel.exportedFile,
+            contentType: viewModel.selectedExportFormat?.contentType ?? .pdf,
             defaultFilename: document.title
         ) { result in
             switch result {
@@ -54,38 +109,52 @@ struct DocumentDetailView: View {
             case .failure(let error):
                 print("Export failed: \(error.localizedDescription)")
             }
-            exportedFile = nil
+            viewModel.exportedFile = nil
         }
     }
     
     @ToolbarContentBuilder
     private var toolbarItems: some ToolbarContent {
         ToolbarItemGroup(placement: .automatic) {
-            // View Mode Selector
-            Picker("View Mode", selection: $activeTab) {
-                Text(Tab.editor.rawValue).tag(Tab.editor)
-                Text(Tab.outline.rawValue).tag(Tab.outline)
-                Text(Tab.preview.rawValue).tag(Tab.preview)
+            Picker("View Mode", selection: Binding(
+                get: { viewModel.activeTab },
+                set: { viewModel.setActiveTab($0) }
+            )) {
+                ForEach(Tab.allCases) { tab in
+                    Text(tab.rawValue).tag(tab)
+                }
             }
             .pickerStyle(.segmented)
             .frame(width: 300)
             
-            if activeTab == .editor {
-                Button(isEditing ? "Done" : "Edit") {
+            if viewModel.activeTab == .editor {
+                Button(viewModel.isEditing ? "Done" : "Edit") {
                     withAnimation {
-                        isEditing.toggle()
+                        viewModel.toggleEditing()
                     }
                 }
             }
             
             DocumentControlsMenu(
-                showingExportOptions: $showingExportOptions,
+                showingExportOptions: $viewModel.showingExportOptions,
                 document: document
             )
         }
     }
 }
 
+// MARK: - Supporting Types
+enum Tab: String, CaseIterable, Identifiable {
+    case editor = "Editor"
+    case outline = "Outline"
+    case preview = "Preview"
+    
+    var id: String { rawValue }
+}
+
+extension Tab: Hashable {}
+
+// MARK: - Supporting Views
 struct DocumentControlsMenu: View {
     @Binding var showingExportOptions: Bool
     let document: Document
@@ -131,6 +200,7 @@ struct ExportOptionsSheet: View {
     @Binding var isExporting: Bool
     @Binding var exportedFile: ExportedFile?
     @Binding var selectedFormat: ExportFormat?
+    let onExport: (ExportFormat) async -> Void
     
     var body: some View {
         NavigationStack {
@@ -138,7 +208,9 @@ struct ExportOptionsSheet: View {
                 Section {
                     ForEach(ExportFormat.allCases, id: \.self) { format in
                         Button {
-                            exportDocument(as: format)
+                            Task {
+                                await onExport(format)
+                            }
                         } label: {
                             HStack {
                                 Text(format.displayName)
@@ -161,24 +233,19 @@ struct ExportOptionsSheet: View {
             }
         }
     }
+}
+
+struct DocumentOutlineView: View {
+    let document: Document
     
-    private func exportDocument(as format: ExportFormat) {
-        Task {
-            do {
-                let url = try await DocumentExporter.export(document, as: format)
-                let data = try Data(contentsOf: url)
-                selectedFormat = format
-                exportedFile = ExportedFile(data: data, format: format)
-                dismiss()
-                isExporting = true
-            } catch {
-                print("Export failed: \(error.localizedDescription)")
-            }
-        }
+    var body: some View {
+        Text("Outline View - Coming Soon")
+            .foregroundColor(.secondary)
     }
 }
 
-struct ExportedFile: FileDocument {
+// Make ExportedFile conform to Sendable since it's used in async context
+struct ExportedFile: FileDocument, Sendable {
     let data: Data
     let format: ExportFormat
     
@@ -196,15 +263,6 @@ struct ExportedFile: FileDocument {
     
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: data)
-    }
-}
-
-struct DocumentOutlineView: View {
-    let document: Document
-    
-    var body: some View {
-        Text("Outline View - Coming Soon")
-            .foregroundColor(.secondary)
     }
 }
 

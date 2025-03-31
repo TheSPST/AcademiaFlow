@@ -11,7 +11,7 @@ final class Document {
     var documentType: DocumentType
     var tags: [String]
     
-    // Relationships - note: @Relationship properties are automatically initialized
+    // Relationships
     @Relationship(deleteRule: .cascade) var versions: [DocumentVersion] = []
     @Relationship(deleteRule: .cascade) var notes: [Note] = []
     @Relationship(deleteRule: .cascade) var references: [Reference] = []
@@ -38,7 +38,7 @@ final class Document {
 }
 
 // Supporting enums
-enum DocumentType: String, Codable, CaseIterable {
+enum DocumentType: String, Codable, CaseIterable, Sendable {
     case paper
     case thesis
     case literature_review
@@ -46,16 +46,37 @@ enum DocumentType: String, Codable, CaseIterable {
     case outline
 }
 
-enum CitationStyle: String, Codable, CaseIterable {
+enum CitationStyle: String, Codable, CaseIterable, Sendable {
     case apa
     case mla
     case chicago
     case harvard
 }
 
-enum DocumentTemplate: String, Codable, CaseIterable {
+enum DocumentTemplate: String, Codable, CaseIterable, Sendable {
     case `default`
     case academic
     case research
     case custom
+}
+
+// Add a Sendable-compliant document snapshot for passing across actor boundaries
+struct DocumentSnapshot: Sendable {
+    let id: PersistentIdentifier
+    let title: String
+    let content: String
+    let documentType: DocumentType
+    let tags: [String]
+    let citationStyle: CitationStyle
+    let template: DocumentTemplate
+    
+    init(from document: Document) {
+        self.id = document.persistentModelID
+        self.title = document.title
+        self.content = document.content
+        self.documentType = document.documentType
+        self.tags = document.tags
+        self.citationStyle = document.citationStyle
+        self.template = document.template
+    }
 }
