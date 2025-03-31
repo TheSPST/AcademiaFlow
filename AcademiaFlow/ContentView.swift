@@ -11,13 +11,7 @@ import SwiftData
 @MainActor
 struct ContentView: View {
     var body: some View {
-        #if os(iOS)
-        NavigationStack {
-            MainView()
-        }
-        #else
         MainView()
-        #endif
     }
 }
 

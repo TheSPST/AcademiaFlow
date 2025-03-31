@@ -3,11 +3,6 @@ import SwiftData
 import UniformTypeIdentifiers
 
 // MARK: - Protocols
-protocol DocumentDisplayable {
-    var title: String { get }
-    var content: String { get }
-}
-
 protocol DocumentExportable {
     func export(as format: ExportFormat) async throws -> URL
 }
@@ -107,7 +102,7 @@ struct DocumentDetailView: View {
             toolbarItems
         }
         .sheet(isPresented: $viewModel.showingExportOptions) {
-            ExportOptionsSheet(viewModel: viewModel)
+            ExportOptionsView(viewModel: viewModel)
         }
         .fileExporter(
             isPresented: $viewModel.isExporting,
@@ -158,80 +153,19 @@ struct DocumentDetailView: View {
                     }
                 }
             }
-            
+            Spacer()
             Button {
                 viewModel.showingExportOptions = true
             } label: {
-                Image(systemName: "square.and.arrow.up")
+                Label("Export", systemImage: "square.and.arrow.up")
             }
+            
         }
-    }
-}
-
-struct ExportOptionsSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject var viewModel: DocumentDetailViewModel
-    
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Button {
-                        Task { await viewModel.prepareExport(as: .pdf) }
-                    } label: {
-                        HStack {
-                            Label("PDF Document", systemImage: "doc.fill")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    
-                    Button {
-                        Task { await viewModel.prepareExport(as: .markdown) }
-                    } label: {
-                        HStack {
-                            Label("Markdown", systemImage: "doc.text.fill")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    
-                    Button {
-                        Task { await viewModel.prepareExport(as: .plainText) }
-                    } label: {
-                        HStack {
-                            Label("Plain Text", systemImage: "doc.text")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } header: {
-                    Text("Choose Format")
-                } footer: {
-                    Text("Select a format to export your document")
-                }
-            }
-            .navigationTitle("Export Document")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-        .presentationDetents([.medium])
     }
 }
 
 // MARK: - File Type
-struct ExportedFile: FileDocument {
+struct ExportedFile: FileDocument, Sendable {
     let data: Data
     let format: ExportFormat
     
@@ -292,15 +226,51 @@ struct DocumentControlsMenu: View {
     }
 }
 
-struct DocumentOutlineView: View {
-    let document: Document
+// MARK: - Export Options View
+private struct ExportOptionsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var viewModel: DocumentDetailViewModel
     
     var body: some View {
-        Text("Outline View - Coming Soon")
-            .foregroundColor(.secondary)
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(ExportFormat.allCases, id: \.self) { format in
+                        Button {
+                            debugPrint("format", format.displayName)
+                            Task {
+                                await viewModel.prepareExport(as: format)
+                            }
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Label(format.displayName, systemImage: format.icon)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Choose Format")
+                } footer: {
+                    Text("Select a format to export your document")
+                }
+            }
+            .navigationTitle("Export Document")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
     }
 }
-
 // MARK: - Tab
 enum Tab: String, CaseIterable, Identifiable {
     case editor = "Editor"

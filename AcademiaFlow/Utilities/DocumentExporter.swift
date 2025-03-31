@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum ExportFormat: String, CaseIterable, Hashable {
+public enum ExportFormat: String, CaseIterable, Hashable, Sendable {
     case pdf = "PDF"
     case markdown = "Markdown"
     case plainText = "Plain Text"
@@ -22,9 +22,7 @@ enum ExportFormat: String, CaseIterable, Hashable {
         }
     }
     
-    var displayName: String {
-        return self.rawValue
-    }
+    var displayName: String { rawValue }
     
     var icon: String {
         switch self {
