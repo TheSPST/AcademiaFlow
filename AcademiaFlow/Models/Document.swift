@@ -4,13 +4,15 @@ import SwiftData
 @Model
 final class Document {
     // Basic properties
+    @Attribute(.unique) var id: UUID = UUID()
     var title: String
     var content: String
+    var filePath: String
     var createdAt: Date
     var updatedAt: Date
     var documentType: DocumentType
     var tags: Array<String>
-    
+
     // Relationships
     @Relationship(deleteRule: .cascade) var versions: [DocumentVersion] = []
     @Relationship(deleteRule: .cascade) var notes: [Note] = []
@@ -26,7 +28,8 @@ final class Document {
          documentType: DocumentType = .paper,
          tags: Array<String> = [],
          citationStyle: CitationStyle = .apa,
-         template: DocumentTemplate = .default) {
+         template: DocumentTemplate = .default,
+         filePath: String) {
         self.title = title
         self.content = content
         self.documentType = documentType
@@ -35,6 +38,7 @@ final class Document {
         self.template = template
         self.createdAt = Date()
         self.updatedAt = Date()
+        self.filePath = filePath
     }
 }
 

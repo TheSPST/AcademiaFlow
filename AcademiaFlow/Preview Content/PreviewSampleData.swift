@@ -21,7 +21,7 @@ class PreviewSampleData {
             documentType: .paper,
             tags: ["SwiftUI", "iOS", "Research"],
             citationStyle: .apa,
-            template: .academic
+            template: .academic, filePath: ""
         )
         
         // Add sample versions
@@ -75,7 +75,7 @@ class PreviewSampleData {
                 documentType: .literature_review,
                 tags: ["Mobile", "Development", "Review"],
                 citationStyle: .mla,
-                template: .research
+                template: .research, filePath: ""
             )
             
             context.insert(document1)

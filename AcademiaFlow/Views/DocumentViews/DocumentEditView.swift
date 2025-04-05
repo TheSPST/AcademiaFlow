@@ -1,25 +1,54 @@
 import SwiftUI
 import SwiftData
-
+import RichTextKit
 @MainActor
 struct DocumentEditView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var document: Document
     @Binding var isEditing: Bool
-    
+    @Binding var contentText: NSAttributedString
+    @StateObject var context = RichTextContext()
+
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     documentHeader
-                    
-                    documentContent
-                        .frame(maxWidth: .infinity, minHeight: geometry.size.height - 200)
+                    if isEditing {
+                        RichTextEditor(text: $contentText, context: context)
+                            .focusedValue(\.richTextContext, context)
+                            .frame(minHeight: 500)
+                    } else {
+                        RichTextViewer(contentText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
+                .inspector(isPresented: $isEditing) {
+                    RichTextFormat.Sidebar(context: context)
+#if os(macOS)
+                        .inspectorColumnWidth(min: 200, ideal: 200, max: 315)
+#endif
+                }
+                .frame(minWidth: 500, minHeight: 400)
+                .focusedValue(\.richTextContext, context)
+                .toolbarRole(.automatic)
+                .richTextFormatSheetConfig(.init(colorPickers: colorPickers))
+                .richTextFormatSidebarConfig(
+                    .init(
+                        colorPickers: colorPickers,
+                        fontPicker: isMac
+                    )
+                )
+                .richTextFormatToolbarConfig(.init(colorPickers: []))
+                //                .viewDebug()
                 .padding()
             }
         }
         .background(Color(.textBackgroundColor))
+        .focusedSceneValue(\.richTextContext, context) // <– REQUIRED for commands to work
+//        .commands {
+//            RichTextCommands() // <– This adds undo/redo/copy/paste/cut etc
+//        }
     }
     
     private var documentHeader: some View {
@@ -66,35 +95,52 @@ struct DocumentEditView: View {
             .font(.caption)
         }
     }
-    
-    private var documentContent: some View {
-        VStack {
-            if isEditing {
-                TextEditor(text: $document.content)
-                    .font(.system(.body))
-                    .scrollContentBackground(.hidden)
-                    .background(Color(.textBackgroundColor))
-            } else {
-                Text(document.content)
-                    .font(.system(.body))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(.textBackgroundColor))
-                .shadow(color: .black.opacity(0.1), radius: 2)
-        )
-    }
+}
+#Preview("Document Edit") {
+    DocumentEditPreviewWrapper()
 }
 
-#Preview("Document Edit") {
-    NavigationStack {
-        DocumentEditView(
-            document: PreviewSampleData.shared.sampleDocument,
-            isEditing: .constant(true)
-        )
+private struct DocumentEditPreviewWrapper: View {
+    @State var dummyText = NSAttributedString(string: "This is a test preview text with some bold and italic styles.")
+
+    var body: some View {
+        NavigationStack {
+            DocumentEditView(
+                document: PreviewSampleData.shared.sampleDocument,
+                isEditing: .constant(true),
+                contentText: $dummyText
+            )
+        }
+        .modelContainer(PreviewSampleData.shared.container)
     }
-    .modelContainer(PreviewSampleData.shared.container)
+}
+private extension DocumentEditView {
+
+    var isMac: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
+        #endif
+    }
+
+    var colorPickers: [RichTextColor] {
+        [.foreground, .background]
+    }
+
+    var formatToolbarEdge: VerticalEdge {
+        isMac ? .top : .bottom
+    }
+}
+extension DocumentEditView {
+    @ToolbarContentBuilder
+    func documentToolbar(_ isPresented: Binding<Bool>) -> some ToolbarContent {
+        ToolbarItem(placement: .automatic) {
+            Toggle(isOn: isPresented) {
+                Image.richTextFormatBrush
+                    .resizable()
+                    .aspectRatio(1, contentMode: .fit)
+            }
+        }
+    }
 }

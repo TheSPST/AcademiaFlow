@@ -96,12 +96,13 @@ struct NewDocumentView: View {
     }
     
     private func createDocument() {
+        let filePath = UUID().uuidString + ".rtf"
         let document = Document(
             title: title,
             documentType: documentType,
             tags: tags,
             citationStyle: citationStyle,
-            template: template
+            template: template, filePath: filePath
         )
         modelContext.insert(document)
     }

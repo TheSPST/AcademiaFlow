@@ -9,7 +9,7 @@ protocol DocumentExportable {
 
 // MARK: - View Models
 @MainActor
-final class DocumentDetailViewModel: ObservableObject {
+class DocumentDetailViewModel: ObservableObject {
     @Published var activeTab: Tab = .editor
     @Published var isEditing = false
     @Published var showingExportOptions = false
@@ -21,11 +21,12 @@ final class DocumentDetailViewModel: ObservableObject {
     @Published var exportError: ExportError?
     @Published var showingErrorAlert = false
     @Published var exportProgress: Double?
-    
+    @Published var contentText = NSAttributedString()
+    private let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? nil
     private let document: Document
-    
     init(document: Document) {
         self.document = document
+        self.readAttributedStringToRTF()
     }
     
     func setActiveTab(_ tab: Tab) {
@@ -33,6 +34,11 @@ final class DocumentDetailViewModel: ObservableObject {
     }
     
     func toggleEditing() {
+        defer {
+            if !isEditing {
+                saveAttributedStringToRTF(contentText)
+            }
+        }
         isEditing.toggle()
     }
     
@@ -70,13 +76,44 @@ final class DocumentDetailViewModel: ObservableObject {
             }
         }
     }
+    
+    private func readAttributedStringToRTF() {
+        
+        guard let fileURL = documentsDirectory?.appendingPathComponent(document.filePath) else { print("❌ Cannot access documents directory")
+            self.contentText = NSAttributedString(string: "This is demo Please delete this and write here")
+            return
+        }
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let loadedAttributedString = try NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
+            self.contentText = loadedAttributedString
+        } catch let error {
+            print("❌ Failed to read RTF: \(error.localizedDescription)")
+            self.contentText = NSAttributedString(string: "This is demo Please delete this and write here")
+            return
+        }
+    }
+    private func saveAttributedStringToRTF(_ attributedString: NSAttributedString) {
+        guard let fileURL = documentsDirectory?.appendingPathComponent(document.filePath) else { print("❌ Cannot access documents directory")
+            return
+        }
+        do {
+            let rtfData = try attributedString.data(from: NSRange(location: 0, length: attributedString.length),
+                                                    documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+            
+            try rtfData.write(to: fileURL)
+            print("✅ RTF saved to: \(fileURL.path)")
+        } catch {
+            print("❌ Failed to save RTF: \(error.localizedDescription)")
+        }
+    }
 }
 
 // MARK: - Views
 struct DocumentDetailView: View {
     @StateObject private var viewModel: DocumentDetailViewModel
     @Bindable private var document: Document
-    
+
     init(document: Document) {
         self.document = document
         self._viewModel = StateObject(wrappedValue: DocumentDetailViewModel(document: document))
@@ -88,7 +125,7 @@ struct DocumentDetailView: View {
                 get: { viewModel.activeTab },
                 set: { viewModel.setActiveTab($0) }
             )) {
-                DocumentEditView(document: document, isEditing: $viewModel.isEditing)
+                DocumentEditView(document: document, isEditing: $viewModel.isEditing, contentText: $viewModel.contentText)
                     .tag(Tab.editor)
                 DocumentOutlineView(document: document)
                     .tag(Tab.outline)
@@ -130,6 +167,9 @@ struct DocumentDetailView: View {
         } message: { error in
             Text(error.localizedDescription)
         }
+        .onAppear {
+            print("🪵 Loaded DocumentDetailView for: \(document.title)")
+        }
     }
     
     @ToolbarContentBuilder
@@ -153,13 +193,19 @@ struct DocumentDetailView: View {
                     }
                 }
             }
-            Spacer()
             Button {
                 viewModel.showingExportOptions = true
             } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
-            
+        }
+        // 💡 Add the editor toolbar ONLY when on the editor tab
+        if viewModel.activeTab == .editor {
+            DocumentEditView(
+                document: document,
+                isEditing: $viewModel.isEditing,
+                contentText: $viewModel.contentText
+            ).documentToolbar($viewModel.isEditing)
         }
     }
 }

@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-
 struct DocumentListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Document.updatedAt, order: .reverse) private var documents: [Document]
@@ -9,7 +8,6 @@ struct DocumentListView: View {
     @State private var selectedDocument: Document?
     @State private var showingSortMenu = false
     @State private var sortOption: SortOption = .modified
-    
     enum SortOption {
         case modified, created, title, type
         
@@ -74,6 +72,7 @@ struct DocumentListView: View {
         .navigationTitle("Documents")
         .navigationDestination(for: Document.self) { document in
             DocumentDetailView(document: document)
+                .id(document.id)
         }
         .searchable(text: $searchText, prompt: "Search documents")
         .toolbar {
@@ -109,7 +108,7 @@ struct DocumentListView: View {
             documentType: document.documentType,
             tags: document.tags,
             citationStyle: document.citationStyle,
-            template: document.template
+            template: document.template, filePath: document.filePath
         )
         modelContext.insert(duplicate)
     }
