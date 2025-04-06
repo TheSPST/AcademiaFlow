@@ -132,15 +132,15 @@ private extension DocumentEditView {
         isMac ? .top : .bottom
     }
 }
-extension DocumentEditView {
-    @ToolbarContentBuilder
-    func documentToolbar(_ isPresented: Binding<Bool>) -> some ToolbarContent {
-        ToolbarItem(placement: .automatic) {
-            Toggle(isOn: isPresented) {
-                Image.richTextFormatBrush
-                    .resizable()
-                    .aspectRatio(1, contentMode: .fit)
-            }
-        }
-    }
-}
+//extension DocumentEditView {
+//    @ToolbarContentBuilder
+//    func documentToolbar(_ isPresented: Binding<Bool>) -> some ToolbarContent {
+//        ToolbarItem(placement: .automatic) {
+//            Toggle(isOn: isPresented) {
+//                Image.richTextFormatBrush
+//                    .resizable()
+//                    .aspectRatio(1, contentMode: .fit)
+//            }
+//        }
+//    }
+//}

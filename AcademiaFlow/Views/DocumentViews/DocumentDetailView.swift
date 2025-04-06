@@ -186,6 +186,7 @@ struct DocumentDetailView: View {
             .pickerStyle(.segmented)
             .frame(width: 300)
             
+            
             if viewModel.activeTab == .editor {
                 Button(viewModel.isEditing ? "Done" : "Edit") {
                     withAnimation {
@@ -198,14 +199,6 @@ struct DocumentDetailView: View {
             } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
-        }
-        // 💡 Add the editor toolbar ONLY when on the editor tab
-        if viewModel.activeTab == .editor {
-            DocumentEditView(
-                document: document,
-                isEditing: $viewModel.isEditing,
-                contentText: $viewModel.contentText
-            ).documentToolbar($viewModel.isEditing)
         }
     }
 }
