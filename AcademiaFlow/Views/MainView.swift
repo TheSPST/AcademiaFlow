@@ -49,7 +49,7 @@ enum NavigationType: String, CaseIterable, @preconcurrency Identifiable {
     var icon: String {
         switch self {
         case .documents: return "doc.text"
-        case .pdfs: return "doc.pdf"
+        case .pdfs: return "doc.richtext"
         case .references: return "books.vertical"
         case .notes: return "note.text"
         }

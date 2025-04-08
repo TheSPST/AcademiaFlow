@@ -11,7 +11,7 @@ final class Document {
     var createdAt: Date
     var updatedAt: Date
     var documentType: DocumentType
-    var tags: Array<String>
+    var tags: [String]
 
     // Relationships
     @Relationship(deleteRule: .cascade) var versions: [DocumentVersion] = []
@@ -26,7 +26,7 @@ final class Document {
          content: String = "",
          richContentData: Data? = nil,
          documentType: DocumentType = .paper,
-         tags: Array<String> = [],
+         tags: [String] = [],
          citationStyle: CitationStyle = .apa,
          template: DocumentTemplate = .default,
          filePath: String) {

@@ -8,19 +8,6 @@ struct DocumentListView: View {
     @State private var selectedDocument: Document?
     @State private var showingSortMenu = false
     @State private var sortOption: SortOption = .modified
-    enum SortOption {
-        case modified, created, title, type
-        
-        var label: String {
-            switch self {
-            case .modified: return "Last Modified"
-            case .created: return "Date Created"
-            case .title: return "Title"
-            case .type: return "Document Type"
-            }
-        }
-    }
-    
     var filteredAndSortedDocuments: [Document] {
         let filtered = searchText.isEmpty ? documents : documents.filter { document in
             document.title.localizedCaseInsensitiveContains(searchText) ||
@@ -77,17 +64,7 @@ struct DocumentListView: View {
         .searchable(text: $searchText, prompt: "Search documents")
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
-                Menu {
-                    Picker("Sort by", selection: $sortOption) {
-                        Text("Last Modified").tag(SortOption.modified)
-                        Text("Date Created").tag(SortOption.created)
-                        Text("Title").tag(SortOption.title)
-                        Text("Type").tag(SortOption.type)
-                    }
-                } label: {
-                    Label("Sort", systemImage: "arrow.up.arrow.down")
-                }
-                
+                SortByMenuView(sortOption: $sortOption)
                 Button(action: { showingNewDocument = true }) {
                     Label("New Document", systemImage: "plus")
                 }
@@ -119,7 +96,18 @@ struct DocumentListView: View {
         }
     }
 }
-
+enum SortOption {
+    case modified, created, title, type
+    
+    var label: String {
+        switch self {
+        case .modified: return "Last Modified"
+        case .created: return "Date Created"
+        case .title: return "Title"
+        case .type: return "Document Type"
+        }
+    }
+}
 struct DocumentRow: View {
     let document: Document
     
@@ -154,7 +142,6 @@ struct DocumentRow: View {
         .padding(.vertical, 4)
     }
 }
-
 struct DocumentContextMenu: View {
     let document: Document
     let onDuplicate: () -> Void
