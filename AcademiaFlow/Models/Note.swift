@@ -7,16 +7,22 @@ final class Note: Identifiable {
     var title: String
     var content: String
     var timestamp: Date
-    var tags: Array<String>
+    var tags: [String]
+    var pageNumber: Int?  // Add page number for PDF notes
     
     @Relationship(inverse: \Document.notes) var document: Document?
+    @Relationship(inverse: \PDF.notes) var pdf: PDF?
     
-    init(title: String = "", content: String = "", tags: Array<String> = []) {
+    init(title: String = "",
+         content: String = "",
+         tags: [String] = [],
+         pageNumber: Int? = nil) {
         self.id = UUID()
         self.title = title
         self.content = content
         self.timestamp = Date()
         self.tags = tags
+        self.pageNumber = pageNumber
     }
 }
 

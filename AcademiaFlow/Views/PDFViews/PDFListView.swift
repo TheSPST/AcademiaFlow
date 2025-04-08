@@ -57,7 +57,7 @@ struct PDFListView: View {
         }
         .navigationTitle("PDFs")
         .navigationDestination(for: PDF.self) { pdf in
-            PDFPreviewView(url: pdf.fileURL)
+            PDFPreviewView(pdf: pdf)
                 .id(pdf.id)
         }
         .searchable(text: $searchText, prompt: "Search pdf")
