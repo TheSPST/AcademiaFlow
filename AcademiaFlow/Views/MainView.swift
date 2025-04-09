@@ -26,7 +26,9 @@ extension ModelContainer {
 @MainActor
 struct MainView: View {
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var errorHandler: ErrorHandler
     @State private var selectedNavigation: NavigationType? = .documents
+    @State private var selectedPDF: PDF?
     @State private var container: ModelContainer?
     
     var body: some View {
@@ -41,14 +43,19 @@ struct MainView: View {
                     .navigationTitle("AcademiaFlow")
                 } content: {
                     if let selected = selectedNavigation {
-                        selected.destinationView
+                        selected.destinationView(selectedPDF: $selectedPDF)
                     } else {
                         Text("Select a section from the sidebar")
                             .foregroundStyle(.secondary)
                     }
                 } detail: {
-                    Text("Select an item")
-                        .foregroundStyle(.secondary)
+                    if let pdf = selectedPDF {
+                        PDFPreviewView(pdf: pdf, modelContext: modelContext)
+                            .id(pdf.id)
+                    } else {
+                        Text("Select a PDF")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             } else {
                 ProgressView()
@@ -56,7 +63,7 @@ struct MainView: View {
                         do {
                             container = try ModelContainer.create()
                         } catch {
-                            print("Failed to create container: \(error)")
+                            errorHandler.handle(DocumentError.loadFailure(error))
                         }
                     }
             }
@@ -92,12 +99,12 @@ enum NavigationType: String, CaseIterable, @preconcurrency Identifiable {
     }
     
     @ViewBuilder
-    var destinationView: some View {
+    func destinationView(selectedPDF: Binding<PDF?>) -> some View {
         switch self {
         case .documents:
             DocumentListView()
         case .pdfs:
-            PDFListView()
+            PDFListView(selectedPDF: selectedPDF)
         case .references:
             ReferenceListView()
         case .notes:

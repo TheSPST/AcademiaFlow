@@ -15,20 +15,24 @@ actor DefaultDocumentExportService: DocumentExportService {
     }
     
     func export(_ documentSnapshot: DocumentSnapshot) async throws -> URL {
-        // Create a temporary file URL
-        let fileName = documentSnapshot.title.isEmpty ? "Untitled" : documentSnapshot.title
-        let fileURL = temporaryDirectory.appendingPathComponent(fileName).appendingPathExtension("pdf")
-        
-        // Ensure old temporary files are cleaned up
-        try? fileManager.removeItem(at: fileURL)
-        
-        // Convert document to requested format
-        let data = try await generatePDF(from: documentSnapshot)
-        
-        // Write to temporary file
-        try data.write(to: fileURL)
-        
-        return fileURL
+        do {
+            // Create a temporary file URL
+            let fileName = documentSnapshot.title.isEmpty ? "Untitled" : documentSnapshot.title
+            let fileURL = temporaryDirectory.appendingPathComponent(fileName).appendingPathExtension("pdf")
+            
+            // Ensure old temporary files are cleaned up
+            try? fileManager.removeItem(at: fileURL)
+            
+            // Convert document to requested format
+            let data = try await generatePDF(from: documentSnapshot)
+            
+            // Write to temporary file
+            try data.write(to: fileURL)
+            
+            return fileURL
+        } catch {
+            throw DocumentError.exportFailed(error)
+        }
     }
     
     private func generatePDF(from snapshot: DocumentSnapshot) async throws -> Data {

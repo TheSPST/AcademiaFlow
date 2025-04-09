@@ -10,8 +10,11 @@ import SwiftData
 
 @MainActor
 struct ContentView: View {
+    @EnvironmentObject private var errorHandler: ErrorHandler
+    
     var body: some View {
         MainView()
+            .withErrorHandling()
     }
 }
 

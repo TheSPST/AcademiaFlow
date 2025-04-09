@@ -5,13 +5,15 @@ import AppKit
 
 struct PDFPreviewView: View {
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var errorHandler: ErrorHandler
     @StateObject private var viewModel: PDFViewModel
     let pdf: PDF
     
     init(pdf: PDF, modelContext: ModelContext) {
         self.pdf = pdf
-        let viewMo = PDFViewModel(pdf: pdf, modelContext: modelContext)
-        self._viewModel = StateObject(wrappedValue: viewMo)
+        // Create the view model with a StateObject wrapper
+        let viewModel = PDFViewModel(pdf: pdf, modelContext: modelContext)
+        self._viewModel = StateObject(wrappedValue: viewModel)
     }
     
     var body: some View {
@@ -194,7 +196,13 @@ struct PDFPreviewView: View {
                     set: { viewModel.currentAnnotationColor = NSColor($0) }
                 ))
                 
-                Button(action: viewModel.addAnnotation) {
+                Button(action: {
+                    Task { @MainActor in
+                        if let error = viewModel.addAnnotation() {
+                            errorHandler.handle(error)
+                        }
+                    }
+                }) {
                     Label("Add Annotation", systemImage: "plus")
                 }
                 

@@ -9,6 +9,7 @@ import PDFKit
 
 struct PDFKitView: NSViewRepresentable {
     @ObservedObject var viewModel: PDFViewModel
+    @EnvironmentObject private var errorHandler: ErrorHandler
     
     func makeNSView(context: Context) -> TrackingPDFView {
         let pdfView = TrackingPDFView()
@@ -27,14 +28,15 @@ struct PDFKitView: NSViewRepresentable {
         viewModel.setupShortcuts()
         
         Task {
-            await viewModel.loadPDF()
+            if let error = await viewModel.loadPDF() {
+                errorHandler.handle(error)
+            }
         }
-        
         return pdfView
     }
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(viewModel: viewModel)
+        Coordinator(viewModel: viewModel, errorHandler: errorHandler)
     }
     
     func updateNSView(_ pdfView: TrackingPDFView, context: Context) {
@@ -48,10 +50,12 @@ struct PDFKitView: NSViewRepresentable {
     
     class Coordinator: NSObject {
         let viewModel: PDFViewModel
+        let errorHandler: ErrorHandler
         private var trackingArea: NSTrackingArea?
         
-        init(viewModel: PDFViewModel) {
+        init(viewModel: PDFViewModel, errorHandler: ErrorHandler) {
             self.viewModel = viewModel
+            self.errorHandler = errorHandler
             super.init()
         }
         

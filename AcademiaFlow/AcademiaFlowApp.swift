@@ -10,35 +10,18 @@ import SwiftData
 
 @main
 struct AcademiaFlowApp: App {
-    let modelContainer: ModelContainer
-    
-    init() {
-        do {
-            let schema = Schema([
-                Document.self,
-                DocumentVersion.self,
-                Reference.self,
-                Note.self,
-                PDF.self,
-                StoredAnnotation.self
-            ])
-            let modelConfiguration = ModelConfiguration(schema: schema)
-            modelContainer = try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not initialize ModelContainer: \(error)")
-        }
-    }
-    
+    @StateObject private var errorHandler = ErrorHandler()
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .modelContainer(for: [
+                    Document.self,
+                    PDF.self,
+                    Reference.self,
+                    Note.self,
+                    StoredAnnotation.self
+                ])
+                .environmentObject(errorHandler)
         }
-        .modelContainer(modelContainer)
-        
-        #if os(macOS)
-        Settings {
-            Text("Settings")
-        }
-        #endif
     }
 }

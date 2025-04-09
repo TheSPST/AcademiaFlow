@@ -3,15 +3,18 @@ import SwiftData
 import UniformTypeIdentifiers
 import PDFKit
 
+@MainActor
 struct PDFListView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \PDF.addedAt, order: .reverse) private var pdfs: [PDF]
+    @EnvironmentObject private var errorHandler: ErrorHandler
+    @Binding var selectedPDF: PDF?
     @State private var searchText = ""
-    @Query private var pdfs: [PDF]
-    @State private var selectedPDF: PDF?
     @State private var isShowingFilePicker = false
     @State private var showError = false
     @State private var errorMessage = ""
     @State private var sortOption: SortOption = .modified
+    
     var filteredAndSortedPDF: [PDF] {
         let filtered = searchText.isEmpty ? pdfs : pdfs.filter { pdf in
             pdf.fileName.localizedCaseInsensitiveContains(searchText) ||
@@ -28,40 +31,36 @@ struct PDFListView: View {
             }
         }
     }
+    
     var body: some View {
-        List {
-            ForEach(filteredAndSortedPDF) { pdf in
-                NavigationLink(value: pdf) {
-                    PDFRowView(pdf: pdf)
+        List(filteredAndSortedPDF, selection: $selectedPDF) { pdf in
+            NavigationLink(value: pdf) {
+                PDFRowView(pdf: pdf)
+            }
+            .tag(pdf)
+            .swipeActions(edge: .leading) {
+                Button {
+                    duplicatePDF(pdf)
+                } label: {
+                    Label("Duplicate", systemImage: "plus.square.on.square")
                 }
-                .swipeActions(edge: .leading) {
-                    Button {
-                        duplicatePDF(pdf)
-                    } label: {
-                        Label("Duplicate", systemImage: "plus.square.on.square")
-                    }
-                    .tint(.blue)
+                .tint(.blue)
+            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    deletePDF(pdf)
+                } label: {
+                    Label("Delete", systemImage: "trash")
                 }
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
-                        deletePDF(pdf)
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                }
-                .contextMenu {
-                    PDFContextMenu(document: pdf,
-                                   onDuplicate: { duplicatePDF(pdf) },
-                                   onDelete: { deletePDF(pdf) })
-                }
+            }
+            .contextMenu {
+                PDFContextMenu(document: pdf,
+                               onDuplicate: { duplicatePDF(pdf) },
+                               onDelete: { deletePDF(pdf) })
             }
         }
         .navigationTitle("PDFs")
-        .navigationDestination(for: PDF.self) { pdf in
-            PDFPreviewView(pdf: pdf, modelContext: modelContext)
-                .id(pdf.id)
-        }
-        .searchable(text: $searchText, prompt: "Search pdf")
+        .searchable(text: $searchText, prompt: "Search PDF")
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
                 SortByMenuView(sortOption: $sortOption)
@@ -111,8 +110,7 @@ struct PDFListView: View {
             try modelContext.save()
             
         } catch {
-            errorMessage = "Failed to duplicate PDF: \(error.localizedDescription)"
-            showError = true
+            errorHandler.handle(PDFError.fileNotFound)
         }
     }
     
@@ -122,8 +120,7 @@ struct PDFListView: View {
             modelContext.delete(pdf)
             try modelContext.save()
         } catch {
-            errorMessage = "Failed to delete PDF: \(error.localizedDescription)"
-            showError = true
+            errorHandler.handle(PDFError.fileNotFound)
         }
     }
     
@@ -149,8 +146,7 @@ struct PDFListView: View {
             }
         } catch {
             await MainActor.run {
-                errorMessage = error.localizedDescription
-                showError = true
+                errorHandler.handle(PDFError.fileNotFound)
             }
         }
     }
@@ -163,12 +159,14 @@ struct PDFRowView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(pdf.title ?? pdf.fileName)
                 .font(.headline)
+            
             let authors = pdf.authors
             if !authors.isEmpty {
                 Text(pdf.authors.joined(separator: ", "))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
+            
             let tags = pdf.tags
             if !tags.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -192,6 +190,7 @@ struct PDFRowView: View {
         .padding(.vertical, 4)
     }
 }
+
 struct SortByMenuView: View {
     @Binding var sortOption: SortOption
     var body: some View {
@@ -207,6 +206,7 @@ struct SortByMenuView: View {
         }
     }
 }
+
 struct PDFContextMenu: View {
     let document: PDF
     let onDuplicate: () -> Void
@@ -229,8 +229,7 @@ struct PDFContextMenu: View {
 
 #Preview {
     NavigationStack {
-        PDFListView()
+        PDFListView(selectedPDF: .constant(nil))
             .modelContainer(PreviewSampleData.shared.container)
     }
 }
-

@@ -8,8 +8,8 @@ protocol PDFViewModelProtocol: ObservableObject {
     var isLoading: Bool { get }
     var currentPage: Int { get set }
     var totalPages: Int { get }
-    func loadPDF() async
-    func addAnnotation()
+    func loadPDF() async -> (any AppError)?
+    func addAnnotation() -> (any AppError)?
     func addNote()
 }
 
@@ -24,7 +24,7 @@ protocol PDFSearchable {
 /// Protocol for PDF annotation functionality
 @MainActor
 protocol PDFAnnotatable {
-    func addAnnotation()
+    func addAnnotation() -> (any AppError)?
     func removeAnnotation(_ annotation: PDFAnnotation)
 }
 
@@ -106,29 +106,24 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
         self.pdfView = view
     }
     
-    func loadPDF() async {
-        do {
-            isLoading = true
-            
-            guard FileManager.default.fileExists(atPath: pdf.fileURL.path) else {
-                throw PDFError.fileNotFound
-            }
-            
-            guard let document = PDFDocument(url: pdf.fileURL) else {
-                throw PDFError.invalidDocument
-            }
-            
-            self.document = document
-            pdfView?.document = document
-            totalPages = document.pageCount
-            
-            setupInitialView()
-            isLoading = false
-            
-        } catch {
-            loadError = error
-            isLoading = false
+    func loadPDF() async -> (any AppError)? {
+        isLoading = true
+        
+        guard FileManager.default.fileExists(atPath: pdf.fileURL.path) else {
+            return PDFError.fileNotFound
         }
+        
+        guard let document = PDFDocument(url: pdf.fileURL) else {
+            return PDFError.invalidDocument
+        }
+        
+        self.document = document
+        pdfView?.document = document
+        totalPages = document.pageCount
+        
+        setupInitialView()
+        isLoading = false
+        return nil
     }
     
     // MARK: - Search Methods
@@ -225,32 +220,58 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
             navigateToPage(currentPage - 1)
         }
     }
-    
+    private func pdfNSError(_ message: String) -> NSError {
+        return NSError(domain: "PDF", code: -1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
     // MARK: - Annotation Methods
-    func addAnnotation() {
-        guard let pdfView = pdfView,
-              let currentSelection = pdfView.currentSelection,
-              let currentPage = pdfView.currentPage else { return }
-        
-        let bounds = currentSelection.bounds(for: currentPage)
-        let boundsArray: [Double] = [bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height]
-        
-        let storedAnnotation = StoredAnnotation(
-            pageIndex: currentPage.pageRef?.pageNumber ?? 0,
-            type: annotationTypeString(),
-            color: currentAnnotationColor.toHex(),
-            contents: currentAnnotationType == .note ? "Note" : nil,
-            bounds: boundsArray,
-            pdf: pdf
-        )
-        modelContext.insert(storedAnnotation)
-        annotations.append(storedAnnotation)
-        let pdfAnnotation = storedAnnotation.toPDFAnnotation()
-        currentPage.addAnnotation(pdfAnnotation)
-        
-        // Store for undo functionality
-        if let lastAnnotation = currentPage.annotations.last {
-            lastAnnotations.append(lastAnnotation)
+    @MainActor
+    func addAnnotation() -> (any AppError)? {
+        do {
+            // Check for required conditions
+            guard let pdfView = pdfView else {
+                return PDFError.annotationFailed(pdfNSError("PDF view not initialized"))
+            }
+            guard let currentSelection = pdfView.currentSelection else {
+                return PDFError.annotationFailed(pdfNSError("No text selected"))
+            }
+            
+            guard let currentPage = pdfView.currentPage else {
+                return PDFError.annotationFailed(pdfNSError("No page selected"))
+            }
+            
+            // Get bounds for the annotation
+            let bounds = currentSelection.bounds(for: currentPage)
+            let boundsArray: [Double] = [bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height]
+            
+            // Create annotation
+            let storedAnnotation = StoredAnnotation(
+                pageIndex: currentPage.pageRef?.pageNumber ?? 0,
+                type: annotationTypeString(),
+                color: currentAnnotationColor.toHex(),
+                contents: currentAnnotationType == .note ? "Note" : nil,
+                bounds: boundsArray,
+                pdf: pdf
+            )
+            
+            // Store annotation
+            modelContext.insert(storedAnnotation)
+            annotations.append(storedAnnotation)
+            
+            // Create and add PDF annotation
+            let pdfAnnotation = storedAnnotation.toPDFAnnotation()
+            currentPage.addAnnotation(pdfAnnotation)
+            
+            // Store for undo functionality
+            if let lastAnnotation = currentPage.annotations.last {
+                lastAnnotations.append(lastAnnotation)
+            }
+            
+            // Save immediately
+            try modelContext.save()
+            return nil
+            
+        } catch {
+            return PDFError.annotationFailed(error)
         }
     }
     
@@ -575,18 +596,4 @@ struct PDFBookmark: Identifiable {
     let pageIndex: Int
     let pageLabel: String
     let timestamp: Date
-}
-
-enum PDFError: LocalizedError {
-    case fileNotFound
-    case invalidDocument
-    
-    var errorDescription: String? {
-        switch self {
-        case .fileNotFound:
-            return "PDF file not found"
-        case .invalidDocument:
-            return "Could not create PDF document from file"
-        }
-    }
 }
