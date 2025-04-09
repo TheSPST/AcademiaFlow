@@ -70,10 +70,8 @@ struct PDFPreviewView: View {
                         .overlay {
                             if viewModel.isLoading {
                                 ProgressView()
-                                    .scaleEffect(1.2)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .controlSize(.small)
                             }
-                            
                             if let error = viewModel.loadError {
                                 ErrorView(error: error)
                             }
@@ -179,27 +177,61 @@ struct PDFPreviewView: View {
     }
     
     private var annotationToolbar: some View {
-        HStack(spacing: 16) {
-            Picker("Annotation Type", selection: $viewModel.currentAnnotationType) {
-                Image(systemName: "highlighter").tag(PDFViewModel.AnnotationType.highlight)
-                Image(systemName: "underline").tag(PDFViewModel.AnnotationType.underline)
-                Image(systemName: "strikethrough").tag(PDFViewModel.AnnotationType.strikethrough)
-                Image(systemName: "note.text").tag(PDFViewModel.AnnotationType.note)
+        VStack(spacing: 8) {
+            // Annotation Type Selection
+            HStack(spacing: 16) {
+                Picker("Annotation Type", selection: $viewModel.currentAnnotationType) {
+                    Image(systemName: "highlighter").tag(PDFViewModel.AnnotationType.highlight)
+                    Image(systemName: "underline").tag(PDFViewModel.AnnotationType.underline)
+                    Image(systemName: "strikethrough").tag(PDFViewModel.AnnotationType.strikethrough)
+                    Image(systemName: "note.text").tag(PDFViewModel.AnnotationType.note)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+                
+                ColorPicker("Annotation Color", selection: Binding(
+                    get: { Color(viewModel.currentAnnotationColor) },
+                    set: { viewModel.currentAnnotationColor = NSColor($0) }
+                ))
+                
+                Button(action: viewModel.addAnnotation) {
+                    Label("Add Annotation", systemImage: "plus")
+                }
+                
+                Button(action: viewModel.undoLastAnnotation) {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                }
+                .disabled(viewModel.lastAnnotations.isEmpty)
+                
+                Button(action: { viewModel.copySelectedText() }) {
+                    Label("Copy Text", systemImage: "doc.on.doc")
+                }
             }
-            .pickerStyle(.segmented)
-            .frame(width: 200)
             
-            ColorPicker("Annotation Color", selection: Binding(
-                get: { Color(viewModel.currentAnnotationColor) },
-                set: { viewModel.currentAnnotationColor = NSColor($0) }
-            ))
-            
-            Button(action: viewModel.addAnnotation) {
-                Label("Add Annotation", systemImage: "plus")
-            }
-            
-            Button(action: { viewModel.copySelectedText() }) {
-                Label("Copy Text", systemImage: "doc.on.doc")
+            // Annotation Editor (when editing)
+            if viewModel.isEditingAnnotation,
+               let annotation = viewModel.selectedAnnotation {
+                HStack {
+                    ColorPicker("Color", selection: Binding(
+                        get: { Color(annotation.color) },
+                        set: { viewModel.updateSelectedAnnotation(color: NSColor($0)) }
+                    ))
+                    
+                    if annotation.type == PDFAnnotationSubtype.text.rawValue {
+                        TextField("Note", text: Binding(
+                            get: { annotation.contents ?? "" },
+                            set: { viewModel.updateSelectedAnnotation(contents: $0) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                    }
+                    
+                    Button("Done") {
+                        viewModel.isEditingAnnotation = false
+                        viewModel.selectedAnnotation = nil
+                    }
+                }
+                .padding(.horizontal)
+                .transition(.move(edge: .top))
             }
         }
         .padding(.horizontal)
@@ -387,27 +419,31 @@ struct PDFPreviewView: View {
                 }
             }
         }
-        .frame(height: 44)
         .padding()
         .background(Color(NSColor.windowBackgroundColor))
+        .frame(maxHeight: 50)
     }
 }
 
 struct PDFKitView: NSViewRepresentable {
     @ObservedObject var viewModel: PDFViewModel
     
-    func makeNSView(context: Context) -> PDFView {
-        let pdfView = PDFView()
+    func makeNSView(context: Context) -> TrackingPDFView {
+        let pdfView = TrackingPDFView()
+        pdfView.coordinator = context.coordinator
         pdfView.backgroundColor = NSColor.windowBackgroundColor
         pdfView.autoresizingMask = [.width, .height]
         pdfView.autoScales = true
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
         
-        let gestureRecognizer = NSClickGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePageClick))
-        pdfView.addGestureRecognizer(gestureRecognizer)
+        // Add click gesture recognizer
+        let clickGesture = NSClickGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleClick(_:)))
+        pdfView.addGestureRecognizer(clickGesture)
         
         viewModel.setPDFView(pdfView)
+        viewModel.setupShortcuts()
+        
         Task {
             await viewModel.loadPDF()
         }
@@ -419,7 +455,7 @@ struct PDFKitView: NSViewRepresentable {
         Coordinator(viewModel: viewModel)
     }
     
-    func updateNSView(_ pdfView: PDFView, context: Context) {
+    func updateNSView(_ pdfView: TrackingPDFView, context: Context) {
         pdfView.scaleFactor = viewModel.zoomLevel
         
         if let document = pdfView.document,
@@ -429,14 +465,117 @@ struct PDFKitView: NSViewRepresentable {
     }
     
     class Coordinator: NSObject {
-        private let viewModel: PDFViewModel
+        let viewModel: PDFViewModel
+        private var trackingArea: NSTrackingArea?
         
         init(viewModel: PDFViewModel) {
             self.viewModel = viewModel
+            super.init()
         }
         
-        @MainActor @objc func handlePageClick() {
-            viewModel.handlePageClick()
+        @MainActor
+        func setupTracking(for view: NSView) {
+            let options: NSTrackingArea.Options = [.mouseEnteredAndExited, .mouseMoved, .activeAlways]
+            let trackingArea = NSTrackingArea(rect: view.bounds, options: options, owner: view, userInfo: nil)
+            view.addTrackingArea(trackingArea)
+            self.trackingArea = trackingArea
+        }
+        
+        @MainActor
+        func updateTrackingArea(for view: NSView) {
+            if let oldTrackingArea = trackingArea {
+                view.removeTrackingArea(oldTrackingArea)
+            }
+            setupTracking(for: view)
+        }
+        
+        @MainActor @objc func handleClick(_ gesture: NSClickGestureRecognizer) {
+            guard let pdfView = gesture.view as? PDFView else {
+                return
+            }
+            
+            let location = gesture.location(in: pdfView)
+            if let currentPage = pdfView.page(for: location, nearest: true) {
+                let annotations = currentPage.annotations
+                if let annotation = annotations.first(where: { $0.bounds.contains(location) }) {
+                    viewModel.selectAnnotation(annotation)
+                } else {
+                    viewModel.handlePageClick()
+                }
+            }
+        }
+    }
+}
+
+class TrackingPDFView: PDFView {
+    weak var coordinator: PDFKitView.Coordinator?
+    
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        handleMouseMovement(event)
+    }
+    
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        handleMouseMovement(event)
+    }
+    
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        Task { @MainActor in
+            coordinator?.viewModel.annotationPreviewActive = false
+        }
+    }
+    
+    @MainActor
+    private func handleMouseMovement(_ event: NSEvent) {
+        let location = self.convert(event.locationInWindow, from: nil)
+        
+        Task { @MainActor in
+            if let currentPage = self.page(for: location, nearest: true) {
+                let annotations = currentPage.annotations
+                if let _ = annotations.first(where: { $0.bounds.contains(location) }) {
+                    coordinator?.viewModel.annotationPreviewActive = true
+                } else {
+                    coordinator?.viewModel.annotationPreviewActive = false
+                }
+            }
+        }
+    }
+}
+
+extension PDFKitView.Coordinator: NSMenuDelegate {
+    @MainActor
+    func mouseEntered(with event: NSEvent) {
+        updateAnnotationPreview(with: event)
+    }
+    
+    @MainActor
+    func mouseMoved(with event: NSEvent) {
+        updateAnnotationPreview(with: event)
+    }
+    
+    @MainActor
+    func mouseExited(with event: NSEvent) {
+        Task { @MainActor in
+            viewModel.annotationPreviewActive = false
+        }
+    }
+    
+    @MainActor
+    private func updateAnnotationPreview(with event: NSEvent) {
+        guard let pdfView = event.window?.contentView?.hitTest(event.locationInWindow) as? PDFView else { return }
+        let location = pdfView.convert(event.locationInWindow, from: nil)
+        
+        Task { @MainActor in
+            if let currentPage = pdfView.page(for: location, nearest: true) {
+                let annotations = currentPage.annotations
+                if let _ = annotations.first(where: { $0.bounds.contains(location) }) {
+                    viewModel.annotationPreviewActive = true
+                } else {
+                    viewModel.annotationPreviewActive = false
+                }
+            }
         }
     }
 }

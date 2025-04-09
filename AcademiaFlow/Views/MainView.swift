@@ -54,7 +54,7 @@ struct MainView: View {
                 ProgressView()
                     .task {
                         do {
-                            container = try await ModelContainer.create()
+                            container = try ModelContainer.create()
                         } catch {
                             print("Failed to create container: \(error)")
                         }

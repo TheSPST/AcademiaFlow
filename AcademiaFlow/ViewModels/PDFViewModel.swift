@@ -67,6 +67,11 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
     @Published var currentQuestion: String = ""
     @Published var isProcessingQuestion: Bool = false
     
+    @Published var selectedAnnotation: PDFAnnotation?
+    @Published var isEditingAnnotation = false
+    @Published var annotationPreviewActive = false
+    @Published var lastAnnotations: [PDFAnnotation] = [] // For undo functionality
+    
     // MARK: - Private Properties
     private var searchResults: [PDFSelection] = []
     private weak var pdfView: PDFView?
@@ -74,6 +79,7 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
     private let modelContext: ModelContext
     private var document: PDFDocument?
     private let chatService = ChatService()
+    private var shortcutMonitor: Any?
     
     
     // MARK: - Types
@@ -91,6 +97,7 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
         
         Task { @MainActor in
             await self.loadInitialData()
+            self.setupShortcuts()
         }
     }
     
@@ -240,10 +247,16 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
         annotations.append(storedAnnotation)
         let pdfAnnotation = storedAnnotation.toPDFAnnotation()
         currentPage.addAnnotation(pdfAnnotation)
+        
+        // Store for undo functionality
+        if let lastAnnotation = currentPage.annotations.last {
+            lastAnnotations.append(lastAnnotation)
+        }
     }
     
     func removeAnnotation(_ annotation: PDFAnnotation) {
         guard let page = annotation.page else { return }
+        
         page.removeAnnotation(annotation)
         
         let bounds = annotation.bounds
@@ -421,6 +434,84 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
         notes.removeAll()
         document = nil
         searchResults.removeAll()
+        if let monitor = shortcutMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+    
+    func setupShortcuts() {
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self else { return event }
+            
+            // Command + H = Highlight
+            if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "h" {
+                self.currentAnnotationType = .highlight
+                return nil
+            }
+            
+            // Command + U = Underline
+            if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "u" {
+                self.currentAnnotationType = .underline
+                return nil
+            }
+            
+            // Command + S = Strikethrough
+            if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "s" {
+                self.currentAnnotationType = .strikethrough
+                return nil
+            }
+            
+            // Command + N = Note
+            if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "n" {
+                self.currentAnnotationType = .note
+                return nil
+            }
+            
+            // Command + Z = Undo
+            if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "z" {
+                self.undoLastAnnotation()
+                return nil
+            }
+            
+            return event
+        }
+    }
+    
+    func undoLastAnnotation() {
+        guard let lastAnnotation = lastAnnotations.popLast(),
+              let page = lastAnnotation.page else { return }
+        
+        page.removeAnnotation(lastAnnotation)
+        if let storedAnnotation = annotations.last {
+            modelContext.delete(storedAnnotation)
+            annotations.removeLast()
+        }
+    }
+    
+    func selectAnnotation(_ annotation: PDFAnnotation) {
+        selectedAnnotation = annotation
+        isEditingAnnotation = true
+    }
+    
+    func updateSelectedAnnotation(color: NSColor? = nil, contents: String? = nil) {
+        guard let annotation = selectedAnnotation else { return }
+        
+        if let color = color {
+            annotation.color = color
+        }
+        
+        if let contents = contents {
+            annotation.contents = contents
+        }
+        
+        // Update stored annotation
+        if let storedAnnotation = annotations.first(where: { $0.bounds == annotation.bounds.array }) {
+            storedAnnotation.color = color?.toHex() ?? storedAnnotation.color
+            storedAnnotation.contents = contents ?? storedAnnotation.contents
+            Task {
+                await saveAnnotation()
+            }
+        }
     }
 }
 
@@ -433,7 +524,7 @@ extension PDFViewModel {
         }
     }
     func restoreAnnotations() {
-        guard let document else { return }
+        guard let document = document else { return }
         
         // Clear existing annotations first
 //        for pageIndex in 0..<document.pageCount {
@@ -447,6 +538,12 @@ extension PDFViewModel {
                 page.addAnnotation(annotation.toPDFAnnotation())
             }
         }
+    }
+}
+
+extension NSRect {
+    var array: [Double] {
+        [origin.x, origin.y, size.width, size.height]
     }
 }
 
