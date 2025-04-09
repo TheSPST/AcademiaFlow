@@ -256,8 +256,13 @@ struct PDFPreviewView: View {
                         .cornerRadius(8)
                         .padding(.horizontal, 8)
                         .onTapGesture {
-//                            $viewModel.thumbnailSelected(index)
+                            viewModel.navigateToPage(index)
                         }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(viewModel.currentPage - 1 == index ? Color.blue : Color.clear,
+                                      lineWidth: 2)
+                        )
                 }
             }
             .padding(.vertical, 8)

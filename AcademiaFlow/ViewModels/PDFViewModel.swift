@@ -72,6 +72,8 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
     @Published var annotationPreviewActive = false
     @Published var lastAnnotations: [PDFAnnotation] = [] // For undo functionality
     
+    @Published private(set) var isScrollingAnimated = false
+    
     // MARK: - Private Properties
     private var searchResults: [PDFSelection] = []
     private weak var pdfView: PDFView?
@@ -80,7 +82,10 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
     private var document: PDFDocument?
     private let chatService = ChatService()
     private var shortcutMonitor: Any?
-    
+    private let minZoom: CGFloat = 0.25
+    private let maxZoom: CGFloat = 4.0
+    private let zoomStep: CGFloat = 1.25
+    private var lastScrollPosition: CGPoint?
     
     // MARK: - Types
     enum AnnotationType {
@@ -178,13 +183,17 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
     
     // MARK: - Zoom Controls
     func zoomIn() {
-        zoomLevel = min(zoomLevel * 1.25, 4.0)
-        pdfView?.scaleFactor = zoomLevel
+        withAnimation(.easeInOut(duration: 0.25)) {
+            zoomLevel = min(zoomLevel * zoomStep, maxZoom)
+            pdfView?.scaleFactor = zoomLevel
+        }
     }
     
     func zoomOut() {
-        zoomLevel = max(zoomLevel / 1.25, 0.25)
-        pdfView?.scaleFactor = zoomLevel
+        withAnimation(.easeInOut(duration: 0.25)) {
+            zoomLevel = max(zoomLevel / zoomStep, minZoom)
+            pdfView?.scaleFactor = zoomLevel
+        }
     }
     
     func resetZoom() {
@@ -194,10 +203,23 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
     
     func fitToWidth() {
         guard let pdfView = pdfView else { return }
-        zoomLevel = pdfView.scaleFactorForSizeToFit
-        pdfView.scaleFactor = zoomLevel
+        // Store current vertical position
+        let currentY = pdfView.enclosingScrollView?.documentVisibleRect.origin.y
+        
+        // Calculate new zoom
+        let newZoom = pdfView.scaleFactorForSizeToFit
+        
+        withAnimation(.easeInOut(duration: 0.25)) {
+            zoomLevel = newZoom
+            pdfView.scaleFactor = newZoom
+            
+            // Restore vertical position
+            if let currentY = currentY {
+                pdfView.enclosingScrollView?.contentView.scroll(to: CGPoint(x: 0, y: currentY))
+            }
+        }
     }
-    
+
     // MARK: - Page Navigation
     func handlePageClick() {
         guard let currentPage = pdfView?.currentPage else { return }
@@ -351,7 +373,21 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
               let document = pdfView.document,
               let page = document.page(at: pageIndex) else { return }
         
-        pdfView.go(to: PDFDestination(page: page, at: NSPoint(x: 0, y: page.bounds(for: .mediaBox).size.height)))
+        // Store horizontal scroll position
+        let currentX = pdfView.enclosingScrollView?.documentVisibleRect.origin.x
+        
+        // Animate to new page
+        isScrollingAnimated = true
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.3
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            
+            let destination = PDFDestination(page: page, at: NSPoint(x: currentX ?? 0,
+                                           y: page.bounds(for: .mediaBox).size.height))
+            pdfView.go(to: destination)
+        }, completionHandler: {
+            self.isScrollingAnimated = false
+        })
     }
     
     private func highlightCurrentSelection() {
@@ -495,6 +531,14 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
             }
             
             return event
+        }
+    }
+    
+    func handlePinchGesture(scale: CGFloat) {
+        let newZoom = zoomLevel * scale
+        if newZoom >= minZoom && newZoom <= maxZoom {
+            zoomLevel = newZoom
+            pdfView?.scaleFactor = newZoom
         }
     }
     

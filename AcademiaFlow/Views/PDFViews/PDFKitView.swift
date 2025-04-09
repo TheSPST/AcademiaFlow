@@ -24,9 +24,21 @@ struct PDFKitView: NSViewRepresentable {
         let clickGesture = NSClickGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleClick(_:)))
         pdfView.addGestureRecognizer(clickGesture)
         
+        // ADD: Magnification gesture recognizer
+        let magnificationGesture = NSMagnificationGestureRecognizer(target: context.coordinator,
+                                                                   action: #selector(Coordinator.handleMagnification(_:)))
+        pdfView.addGestureRecognizer(magnificationGesture)
+        
+        // Improve scrolling behavior
+        if let scrollView = pdfView.enclosingScrollView {
+            scrollView.hasVerticalScroller = true
+            scrollView.hasHorizontalScroller = true
+            scrollView.scrollerStyle = .legacy
+            scrollView.horizontalScrollElasticity = NSScrollView.Elasticity.none
+            scrollView.verticalScrollElasticity = NSScrollView.Elasticity.automatic
+        }
         viewModel.setPDFView(pdfView)
         viewModel.setupShortcuts()
-        
         Task {
             if let error = await viewModel.loadPDF() {
                 errorHandler.handle(error)
@@ -88,6 +100,18 @@ struct PDFKitView: NSViewRepresentable {
                 } else {
                     viewModel.handlePageClick()
                 }
+            }
+        }
+        
+        // Add magnification handling
+        @MainActor @objc func handleMagnification(_ gesture: NSMagnificationGestureRecognizer) {
+            switch gesture.state {
+            case .changed:
+                viewModel.handlePinchGesture(scale: gesture.magnification + 1)
+            case .ended:
+                gesture.magnification = 0
+            default:
+                break
             }
         }
     }
