@@ -43,6 +43,12 @@ struct PDFPreviewView: View {
                         Label("Notes", systemImage: "note.text")
                     }
                     .toggleStyle(.button)
+                    
+                    Toggle(isOn: $viewModel.showChatView) {
+                        Label("Chat", systemImage: "bubble.left.and.bubble.right")
+                    }
+                    .toggleStyle(.button)
+                    
                     Spacer()
                 }
                 // PDF View with Toolbar
@@ -89,6 +95,13 @@ struct PDFPreviewView: View {
             if viewModel.showNotes {
                 notesSidebar
                     .frame(width: 250)
+                    .background(Color(NSColor.windowBackgroundColor))
+            }
+            
+            // Add chat sidebar
+            if viewModel.showChatView {
+                chatSidebar
+                    .frame(width: 300)
                     .background(Color(NSColor.windowBackgroundColor))
             }
         }
@@ -277,6 +290,54 @@ struct PDFPreviewView: View {
                     .padding(.vertical, 4)
                 }
             }
+        }
+    }
+    
+    private var chatSidebar: some View {
+        VStack {
+            Text("Chat")
+                .font(.headline)
+                .padding()
+            
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(viewModel.chatMessages, id: \.question) { message in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Q: \(message.question)")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                            
+                            Text(message.answer)
+                                .font(.body)
+                                .padding()
+                                .background(Color.secondary.opacity(0.1))
+                                .cornerRadius(8)
+                        }
+                    }
+                }
+                .padding()
+            }
+            
+            HStack {
+                TextField("Ask a question...", text: $viewModel.currentQuestion)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(viewModel.isProcessingQuestion)
+                
+                Button {
+                    Task {
+                        await viewModel.askQuestion()
+                    }
+                } label: {
+                    if viewModel.isProcessingQuestion {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.up.circle.fill")
+                    }
+                }
+                .disabled(viewModel.currentQuestion.isEmpty || viewModel.isProcessingQuestion)
+            }
+            .padding()
         }
     }
     

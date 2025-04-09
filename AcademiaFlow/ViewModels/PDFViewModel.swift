@@ -61,12 +61,20 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
     @Published var showNotes: Bool = false
     @Published var showBookmarks = false
     @Published var bookmarks: [PDFBookmark] = []
+    
+    @Published var showChatView: Bool = true
+    @Published var chatMessages: [(question: String, answer: String)] = []
+    @Published var currentQuestion: String = ""
+    @Published var isProcessingQuestion: Bool = false
+    
     // MARK: - Private Properties
     private var searchResults: [PDFSelection] = []
     private weak var pdfView: PDFView?
     private let pdf: PDF
     private let modelContext: ModelContext
     private var document: PDFDocument?
+    private let chatService = ChatService()
+    
     
     // MARK: - Types
     enum AnnotationType {
@@ -376,6 +384,27 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
         case .strikethrough: return "strikethrough"
         case .note: return "note"
         }
+    }
+    
+    @MainActor
+    func askQuestion() async {
+        guard !currentQuestion.isEmpty else { return }
+        
+        isProcessingQuestion = true
+        let question = currentQuestion
+        currentQuestion = ""
+        
+        do {
+            // Extract text from current page or visible pages
+            let pageText = selectedPage?.string ?? ""
+            
+            let answer = try await chatService.sendMessage(question, context: pageText)
+            chatMessages.append((question: question, answer: answer))
+        } catch {
+            chatMessages.append((question: question, answer: "Error: \(error.localizedDescription)"))
+        }
+        
+        isProcessingQuestion = false
     }
     
     nonisolated func asyncCleanup() {
