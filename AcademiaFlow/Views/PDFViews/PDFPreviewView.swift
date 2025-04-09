@@ -319,13 +319,20 @@ struct PDFPreviewView: View {
             }
             
             HStack {
-                TextField("Ask a question...", text: $viewModel.currentQuestion)
+                TextField("Ask a question about this page...", text: $viewModel.currentQuestion)
                     .textFieldStyle(.roundedBorder)
                     .disabled(viewModel.isProcessingQuestion)
                 
                 Button {
-                    Task {
-                        await viewModel.askQuestion()
+                    // Get the current page text and pass it to askQuestion
+                    if let selectedPage = viewModel.selectedPage {
+                        Task {
+                            await viewModel.askQuestion(pageText: selectedPage.string ?? "")
+                        }
+                    } else {
+                        Task {
+                            await viewModel.askQuestion(pageText: "")
+                        }
                     }
                 } label: {
                     if viewModel.isProcessingQuestion {

@@ -387,7 +387,7 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
     }
     
     @MainActor
-    func askQuestion() async {
+    func askQuestion(pageText: String) async {
         guard !currentQuestion.isEmpty else { return }
         
         isProcessingQuestion = true
@@ -395,9 +395,6 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
         currentQuestion = ""
         
         do {
-            // Extract text from current page or visible pages
-            let pageText = selectedPage?.string ?? ""
-            
             let answer = try await chatService.sendMessage(question, context: pageText)
             chatMessages.append((question: question, answer: answer))
         } catch {
