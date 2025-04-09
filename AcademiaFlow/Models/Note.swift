@@ -32,7 +32,7 @@ struct NoteSnapshot: Sendable {
     let title: String
     let content: String
     let timestamp: Date
-    let tags: Array<String>
+    let tags: [String]
     
     init(from note: Note) {
         self.id = note.id

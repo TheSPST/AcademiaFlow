@@ -69,14 +69,3 @@ enum NavigationType: String, CaseIterable, @preconcurrency Identifiable {
         }
     }
 }
-
-#Preview {
-    do {
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: Document.self, PDF.self, Reference.self, Note.self, configurations: config)
-        return MainView()
-            .modelContainer(container)
-    } catch {
-        return Text("Failed to create preview container")
-    }
-}

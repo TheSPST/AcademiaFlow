@@ -1,46 +1,117 @@
 import SwiftUI
+import SwiftData
 import PDFKit
 import AppKit
 
 struct PDFPreviewView: View {
-    @StateObject private var viewModel: PDFViewModel
     @Environment(\.modelContext) private var modelContext
-    @State private var isAddingNote = false
-    
+    @StateObject private var viewModel: PDFViewModel
     let pdf: PDF
     
-    init(pdf: PDF) {
+    init(pdf: PDF, modelContext: ModelContext) {
         self.pdf = pdf
-        self._viewModel = StateObject(wrappedValue: PDFViewModel(pdf: pdf))
+        let viewMo = PDFViewModel(pdf: pdf, modelContext: modelContext)
+        self._viewModel = StateObject(wrappedValue: viewMo)
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Search bar
-            searchBar
+        HStack(spacing: 0) {
+            // Optional Thumbnail Sidebar
+            if viewModel.showThumbnailView {
+                thumbnailSidebar
+                    .frame(width: 200)
+                    .background(Color(NSColor.windowBackgroundColor))
+            }
             
-            // PDF View
-            PDFKitView(viewModel: viewModel)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay {
-                    if viewModel.isLoading {
-                        ProgressView()
-                            .scaleEffect(1.2)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
+            VStack(spacing: 0) {
+                // Search bar
+                HStack {
+                    searchBar
+                    Spacer()
                     
-                    if let error = viewModel.loadError {
-                        ErrorView(error: error)
+                    Toggle(isOn: $viewModel.showThumbnailView) {
+                        Label("Thumbnails", systemImage: "sidebar.left")
+                    }
+                    .toggleStyle(.button)
+                    
+                    Toggle(isOn: $viewModel.showBookmarks) {
+                        Label("Bookmarks", systemImage: "bookmark")
+                    }
+                    .toggleStyle(.button)
+                    
+                    Toggle(isOn: $viewModel.showNotes) {
+                        Label("Notes", systemImage: "note.text")
+                    }
+                    .toggleStyle(.button)
+                    Spacer()
+                }
+                // PDF View with Toolbar
+                VStack(spacing: 0) {
+                    // Annotation Toolbar
+                    annotationToolbar
+                    
+                    // PDF View
+                    PDFKitView(viewModel: viewModel)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .overlay {
+                            if viewModel.isLoading {
+                                ProgressView()
+                                    .scaleEffect(1.2)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
+                            
+                            if let error = viewModel.loadError {
+                                ErrorView(error: error)
+                            }
+                        }
+                }
+                
+                // Toolbar
+                toolbar
+            }
+            
+            // Bookmarks Sidebar
+            if viewModel.showBookmarks {
+                bookmarksSidebar
+                    .frame(width: 250)
+                    .background(Color(NSColor.windowBackgroundColor))
+            }
+            
+            // Notes Sidebar
+            if viewModel.showNotes {
+                notesSidebar
+                    .frame(width: 250)
+                    .background(Color(NSColor.windowBackgroundColor))
+            }
+        }
+        .sheet(isPresented: $viewModel.isAddingNote) {
+            NavigationStack {
+                Form {
+                    TextField("Title", text: $viewModel.newNoteTitle)
+                    TextEditor(text: $viewModel.newNoteContent)
+                        .frame(height: 100)
+                    
+                    Section("Tags") {
+                        TagEditorView(tags: $viewModel.newNoteTags)
                     }
                 }
-            
-            // Toolbar
-            toolbar
-        }
-        .sheet(isPresented: $isAddingNote) {
-            if let page = viewModel.selectedPage {
-                AddNoteView(pdf: pdf, pageNumber: page.pageRef?.pageNumber ?? 0)
+                .padding()
+                .navigationTitle("Add Note")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            viewModel.isAddingNote = false
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") {
+                            viewModel.addNote()
+                        }
+                        .disabled(viewModel.newNoteTitle.isEmpty && viewModel.newNoteContent.isEmpty)
+                    }
+                }
             }
+            .frame(minWidth: 400, minHeight: 300)
         }
     }
     
@@ -86,6 +157,123 @@ struct PDFPreviewView: View {
         .padding()
     }
     
+    private var annotationToolbar: some View {
+        HStack(spacing: 16) {
+            Picker("Annotation Type", selection: $viewModel.currentAnnotationType) {
+                Image(systemName: "highlighter").tag(PDFViewModel.AnnotationType.highlight)
+                Image(systemName: "underline").tag(PDFViewModel.AnnotationType.underline)
+                Image(systemName: "strikethrough").tag(PDFViewModel.AnnotationType.strikethrough)
+                Image(systemName: "note.text").tag(PDFViewModel.AnnotationType.note)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 200)
+            
+            ColorPicker("Annotation Color", selection: Binding(
+                get: { Color(viewModel.currentAnnotationColor) },
+                set: { viewModel.currentAnnotationColor = NSColor($0) }
+            ))
+            
+            Button(action: viewModel.addAnnotation) {
+                Label("Add Annotation", systemImage: "plus")
+            }
+            
+            Button(action: { viewModel.copySelectedText() }) {
+                Label("Copy Text", systemImage: "doc.on.doc")
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+    
+    private var thumbnailSidebar: some View {
+        ScrollView {
+            LazyVStack(spacing: 8) {
+                ForEach(0..<viewModel.totalPages, id: \.self) { index in
+                    ThumbnailView(pageIndex: index, viewModel: viewModel)
+                        .frame(height: 150)
+                        .cornerRadius(8)
+                        .padding(.horizontal, 8)
+                        .onTapGesture {
+//                            $viewModel.thumbnailSelected(index)
+                        }
+                }
+            }
+            .padding(.vertical, 8)
+        }
+    }
+    
+    private var bookmarksSidebar: some View {
+        VStack {
+            HStack {
+                Text("Bookmarks")
+                    .font(.headline)
+                Spacer()
+                Button(action: viewModel.toggleBookmark) {
+                    Label("Add Bookmark", systemImage: "bookmark.fill")
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+            
+            List(viewModel.bookmarks) { bookmark in
+                BookmarkRow(bookmark: bookmark)
+                    .onTapGesture {
+                        viewModel.goToBookmark(bookmark)
+                    }
+            }
+        }
+    }
+    
+    private var notesSidebar: some View {
+        VStack {
+            HStack {
+                Text("Notes")
+                    .font(.headline)
+                Spacer()
+                Button(action: { viewModel.isAddingNote = true }) {
+                    Label("Add Note", systemImage: "square.and.pencil")
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+            
+            List {
+                ForEach(viewModel.notes) { note in
+                    VStack(alignment: .leading) {
+                        Text(note.title)
+                            .font(.headline)
+                        Text(note.content)
+                            .font(.body)
+                            .lineLimit(2)
+                        if !note.tags.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack {
+                                    ForEach(note.tags, id: \.self) { tag in
+                                        Text(tag)
+                                            .font(.caption)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color.blue.opacity(0.2))
+                                            .cornerRadius(8)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            viewModel.deleteNote(note)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     private var toolbar: some View {
         HStack {
             // Zoom controls
@@ -124,14 +312,6 @@ struct PDFPreviewView: View {
                     Label("Next Page", systemImage: "chevron.right")
                 }
             }
-            
-            Spacer()
-            
-            // Note adding button
-            Button(action: { isAddingNote = true }) {
-                Label("Add Note", systemImage: "note.text.badge.plus")
-            }
-            .disabled(viewModel.selectedPage == nil)
         }
         .frame(height: 44)
         .padding()
@@ -187,57 +367,6 @@ struct PDFKitView: NSViewRepresentable {
     }
 }
 
-struct AddNoteView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-    let pdf: PDF
-    let pageNumber: Int
-    
-    @State private var title = ""
-    @State private var content = ""
-    @State private var tags: [String] = []
-    
-    var body: some View {
-        NavigationStack {
-            Form {
-                TextField("Title", text: $title)
-                TextEditor(text: $content)
-                    .frame(height: 100)
-                
-                Section("Tags") {
-                    TagEditorView(tags: $tags)
-                }
-            }
-            .padding()
-            .navigationTitle("Add Note")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        saveNote()
-                        dismiss()
-                    }
-                    .disabled(title.isEmpty && content.isEmpty)
-                }
-            }
-        }
-        .frame(minWidth: 400, minHeight: 300)
-    }
-    
-    private func saveNote() {
-        let note = Note(title: title,
-                       content: content,
-                       tags: tags,
-                       pageNumber: pageNumber)
-        note.pdf = pdf
-        modelContext.insert(note)
-    }
-}
-
 struct ErrorView: View {
     let error: Error
     
@@ -258,10 +387,40 @@ struct ErrorView: View {
     }
 }
 
-#Preview {
-    if let url = Bundle.main.url(forResource: "sample", withExtension: "pdf") {
-        PDFPreviewView(pdf: PDF(fileName: "sample.pdf", fileURL: url))
-    } else {
-        Text("No PDF available for preview")
+struct ThumbnailView: View {
+    let pageIndex: Int
+    @ObservedObject var viewModel: PDFViewModel
+    
+    var body: some View {
+        // Implement thumbnail rendering using PDFKit
+        Color.gray.opacity(0.2)
     }
 }
+
+struct BookmarkRow: View {
+    let bookmark: PDFBookmark
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading) {
+                Text("Page \(bookmark.pageLabel)")
+                    .font(.headline)
+                Text(bookmark.timestamp, style: .date)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Image(systemName: "bookmark.fill")
+                .foregroundColor(.blue)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+//#Preview {
+//    if let url = Bundle.main.url(forResource: "sample", withExtension: "pdf") {
+////        PDFPreviewView(pdf: PDF(fileName: "sample.pdf", fileURL: url), modelContext: ModelContext())
+//    } else {
+//        Text("No PDF available for preview")
+//    }
+//}

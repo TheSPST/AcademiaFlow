@@ -1,27 +1,61 @@
 import SwiftUI
 import PDFKit
+import SwiftData
 
+/// ViewModel for handling PDF document viewing and annotation
 @MainActor
 class PDFViewModel: ObservableObject {
-    @Published var isLoading = true
-    @Published var loadError: Error?
+    // MARK: - Published Properties
+    @Published private(set) var isLoading = true
+    @Published private(set) var loadError: Error?
     @Published var selectedPage: PDFPage?
     @Published var currentPage = 1
-    @Published var totalPages = 1
+    @Published private(set) var totalPages = 1
     @Published var zoomLevel: CGFloat = 1.0
     @Published var searchText = ""
     @Published var isSearching = false
     @Published var currentSearchResult = 0
     @Published var totalSearchResults = 0
+    @Published var showThumbnailView = false
+    @Published var currentAnnotationColor = NSColor.yellow
+    @Published var currentAnnotationType: AnnotationType = .highlight
+    @Published var bookmarks: [PDFBookmark] = []
+    @Published var showBookmarks = false
+    @Published var selectedText: String = ""
+    @Published var notes: [Note] = []
+    @Published var annotations: [StoredAnnotation] = []
+    @Published var isAddingNote = false
+    @Published var newNoteTitle = ""
+    @Published var newNoteContent = ""
+    @Published var newNoteTags: [String] = []
+    @Published var showNotes: Bool = false
     
+    // MARK: - Private Properties
     private var searchResults: [PDFSelection] = []
     private weak var pdfView: PDFView?
     private let pdf: PDF
+    private let modelContext: ModelContext
+    private var document: PDFDocument?
     
-    init(pdf: PDF) {
-        self.pdf = pdf
+    // MARK: - Types
+    enum AnnotationType {
+        case highlight
+        case underline
+        case strikethrough
+        case note
     }
     
+    // MARK: - Initialization
+    init(pdf: PDF, modelContext: ModelContext) {
+        self.pdf = pdf
+        self.modelContext = modelContext
+        
+        Task { @MainActor in
+            await self.loadInitialData()
+        }
+    }
+    
+    // MARK: - Public Methods
     func setPDFView(_ view: PDFView) {
         self.pdfView = view
     }
@@ -38,6 +72,7 @@ class PDFViewModel: ObservableObject {
                 throw PDFError.invalidDocument
             }
             
+            self.document = document
             pdfView?.document = document
             totalPages = document.pageCount
             
@@ -50,22 +85,9 @@ class PDFViewModel: ObservableObject {
         }
     }
     
-    private func setupInitialView() {
-        guard let pdfView = pdfView,
-              let document = pdfView.document,
-              let firstPage = document.page(at: 0) else { return }
-        
-        pdfView.autoScales = true
-        pdfView.maxScaleFactor = 4.0
-        pdfView.minScaleFactor = 0.25
-        pdfView.go(to: PDFDestination(page: firstPage, at: NSPoint(x: 0, y: firstPage.bounds(for: .mediaBox).size.height)))
-        pdfView.scaleFactor = pdfView.scaleFactorForSizeToFit
-        self.zoomLevel = pdfView.scaleFactor
-    }
-    
+    // MARK: - Search Methods
     func performSearch() {
-        guard let pdfView = pdfView,
-              let document = pdfView.document else { return }
+        guard let document = document else { return }
         
         searchResults.removeAll()
         currentSearchResult = 0
@@ -95,20 +117,6 @@ class PDFViewModel: ObservableObject {
         }
     }
     
-    private func highlightCurrentSelection() {
-        guard currentSearchResult > 0,
-              currentSearchResult <= searchResults.count,
-              let pdfView = pdfView else { return }
-        
-        let selection = searchResults[currentSearchResult - 1]
-        pdfView.setCurrentSelection(selection, animate: true)
-        pdfView.scrollSelectionToVisible(nil)
-        
-        if let page = selection.pages.first {
-            currentPage = pdfView.document?.index(for: page) ?? 0 + 1
-        }
-    }
-    
     func nextSearchResult() {
         if currentSearchResult < totalSearchResults {
             currentSearchResult += 1
@@ -127,18 +135,7 @@ class PDFViewModel: ObservableObject {
         highlightCurrentSelection()
     }
     
-    func handlePageClick() {
-        guard let pdfView = pdfView,
-              let currentPage = pdfView.currentPage else { return }
-        
-        selectedPage = currentPage
-        if let pageNum = currentPage.pageRef?.pageNumber {
-            self.currentPage = pageNum
-        }
-    }
-    
     // MARK: - Zoom Controls
-    
     func zoomIn() {
         zoomLevel = min(zoomLevel * 1.25, 4.0)
         pdfView?.scaleFactor = zoomLevel
@@ -161,6 +158,13 @@ class PDFViewModel: ObservableObject {
     }
     
     // MARK: - Page Navigation
+    func handlePageClick() {
+        guard let currentPage = pdfView?.currentPage else { return }
+        selectedPage = currentPage
+        if let pageNum = currentPage.pageRef?.pageNumber {
+            self.currentPage = pageNum
+        }
+    }
     
     func goToNextPage() {
         if currentPage < totalPages {
@@ -176,6 +180,114 @@ class PDFViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Annotation Methods
+    func addAnnotation() {
+        guard let pdfView = pdfView,
+              let currentSelection = pdfView.currentSelection,
+              let currentPage = pdfView.currentPage else { return }
+        
+        do {
+            let bounds = currentSelection.bounds(for: currentPage)
+            let boundsArray: [Double] = [bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height]
+            
+            let storedAnnotation = StoredAnnotation(
+                pageIndex: currentPage.pageRef?.pageNumber ?? 0,
+                type: annotationTypeString(),
+                color: currentAnnotationColor.toHex(),
+                contents: currentAnnotationType == .note ? "Note" : nil,
+                bounds: boundsArray,
+                pdf: pdf
+            )
+            
+            modelContext.insert(storedAnnotation)
+            annotations.append(storedAnnotation)
+            
+            let pdfAnnotation = storedAnnotation.toPDFAnnotation()
+            currentPage.addAnnotation(pdfAnnotation)
+            
+        } catch {
+            print("Error adding annotation: \(error)")
+        }
+    }
+    
+    func removeAnnotation(_ annotation: PDFAnnotation) {
+        guard let page = annotation.page else { return }
+        page.removeAnnotation(annotation)
+        
+        let bounds = annotation.bounds
+        if let storedAnnotation = annotations.first(where: { $0.bounds == [bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height] }) {
+            modelContext.delete(storedAnnotation)
+            annotations.removeAll { $0.id == storedAnnotation.id }
+        }
+    }
+    
+    // MARK: - Note Management
+    func addNote() {
+        guard let currentPage = pdfView?.currentPage,
+              let pageNumber = currentPage.pageRef?.pageNumber else { return }
+        
+        let note = Note(
+            title: newNoteTitle,
+            content: newNoteContent,
+            tags: newNoteTags,
+            pageNumber: pageNumber
+        )
+        note.pdf = pdf
+        
+        modelContext.insert(note)
+        notes.append(note)
+        
+        // Reset form
+        resetNoteForm()
+    }
+    
+    func deleteNote(_ note: Note) {
+        modelContext.delete(note)
+        notes.removeAll { $0.id == note.id }
+    }
+    
+    // MARK: - Bookmark Methods
+    func toggleBookmark() {
+        guard let currentPage = pdfView?.currentPage else { return }
+        
+        if let existingBookmark = bookmarks.first(where: { $0.pageIndex == currentPage.pageRef?.pageNumber }) {
+            bookmarks.removeAll { $0.pageIndex == existingBookmark.pageIndex }
+        } else {
+            let newBookmark = PDFBookmark(
+                pageIndex: currentPage.pageRef?.pageNumber ?? 0,
+                pageLabel: currentPage.label ?? "",
+                timestamp: Date()
+            )
+            bookmarks.append(newBookmark)
+        }
+    }
+    
+    func goToBookmark(_ bookmark: PDFBookmark) {
+        navigateToPage(bookmark.pageIndex)
+    }
+    
+    // MARK: - Text Selection
+    func copySelectedText() {
+        guard let selection = pdfView?.currentSelection?.string else { return }
+        selectedText = selection
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(selectedText, forType: .string)
+    }
+    
+    // MARK: - Private Methods
+    private func setupInitialView() {
+        guard let pdfView = pdfView,
+              let document = pdfView.document,
+              let firstPage = document.page(at: 0) else { return }
+        
+        pdfView.autoScales = true
+        pdfView.maxScaleFactor = 4.0
+        pdfView.minScaleFactor = 0.25
+        pdfView.go(to: PDFDestination(page: firstPage, at: NSPoint(x: 0, y: firstPage.bounds(for: .mediaBox).size.height)))
+        pdfView.scaleFactor = pdfView.scaleFactorForSizeToFit
+        self.zoomLevel = pdfView.scaleFactor
+    }
+    
     private func navigateToPage(_ pageIndex: Int) {
         guard let pdfView = pdfView,
               let document = pdfView.document,
@@ -183,6 +295,98 @@ class PDFViewModel: ObservableObject {
         
         pdfView.go(to: PDFDestination(page: page, at: NSPoint(x: 0, y: page.bounds(for: .mediaBox).size.height)))
     }
+    
+    private func highlightCurrentSelection() {
+        guard currentSearchResult > 0,
+              currentSearchResult <= searchResults.count,
+              let pdfView = pdfView else { return }
+        
+        let selection = searchResults[currentSearchResult - 1]
+        pdfView.setCurrentSelection(selection, animate: true)
+        pdfView.scrollSelectionToVisible(nil)
+        
+        if let page = selection.pages.first {
+            currentPage = pdfView.document?.index(for: page) ?? 0 + 1
+        }
+    }
+    
+    private func loadInitialData() async {
+        await loadAnnotations()
+        await loadNotes()
+    }
+    
+    private func loadAnnotations() async {
+        do {
+            let descriptor = FetchDescriptor<StoredAnnotation>()
+            let allAnnotations = try modelContext.fetch(descriptor)
+            annotations = allAnnotations.filter { $0.pdf?.persistentModelID == pdf.persistentModelID }
+            await restoreAnnotations()
+        } catch {
+            print("Error loading annotations: \(error)")
+        }
+    }
+    
+    private func loadNotes() async {
+        do {
+            let descriptor = FetchDescriptor<Note>()
+            let allNotes = try modelContext.fetch(descriptor)
+            notes = allNotes.filter { $0.pdf?.persistentModelID == pdf.persistentModelID }
+        } catch {
+            print("Error loading notes: \(error)")
+        }
+    }
+    
+    private func restoreAnnotations() async {
+        guard let document = pdfView?.document else { return }
+        
+        for annotation in annotations {
+            if let page = document.page(at: annotation.pageIndex) {
+                page.addAnnotation(annotation.toPDFAnnotation())
+            }
+        }
+    }
+    
+    private func resetNoteForm() {
+        newNoteTitle = ""
+        newNoteContent = ""
+        newNoteTags = []
+        isAddingNote = false
+    }
+    
+    private func annotationTypeString() -> String {
+        switch currentAnnotationType {
+        case .highlight: return "highlight"
+        case .underline: return "underline"
+        case .strikethrough: return "strikethrough"
+        case .note: return "note"
+        }
+    }
+    
+    nonisolated func asyncCleanup() {
+        Task { @MainActor [weak self] in
+            self?.cleanup()
+        }
+    }
+
+    
+    deinit {
+        asyncCleanup()
+    }
+
+    @MainActor
+    private func cleanup() {
+        annotations.removeAll()
+        notes.removeAll()
+        document = nil
+        searchResults.removeAll()
+    }
+}
+
+struct PDFBookmark: Identifiable {
+    let id = UUID()
+    let pageIndex: Int
+    let pageLabel: String
+    let timestamp: Date
 }
 
 enum PDFError: LocalizedError {
