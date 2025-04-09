@@ -4,7 +4,40 @@ import SwiftData
 
 /// ViewModel for handling PDF document viewing and annotation
 @MainActor
-class PDFViewModel: ObservableObject {
+protocol PDFViewModelProtocol: ObservableObject {
+    var isLoading: Bool { get }
+    var currentPage: Int { get set }
+    var totalPages: Int { get }
+    func loadPDF() async
+    func addAnnotation()
+    func addNote()
+}
+
+/// Protocol for PDF search functionality
+@MainActor
+protocol PDFSearchable {
+    func performSearch()
+    func nextSearchResult()
+    func previousSearchResult()
+}
+
+/// Protocol for PDF annotation functionality
+@MainActor
+protocol PDFAnnotatable {
+    func addAnnotation()
+    func removeAnnotation(_ annotation: PDFAnnotation)
+}
+
+/// Protocol for PDF navigation functionality
+@MainActor
+protocol PDFNavigatable {
+    func goToNextPage()
+    func goToPreviousPage()
+    func navigateToPage(_ pageIndex: Int)
+}
+
+@MainActor
+class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAnnotatable, PDFNavigatable {
     // MARK: - Published Properties
     @Published private(set) var isLoading = true
     @Published private(set) var loadError: Error?
@@ -19,9 +52,6 @@ class PDFViewModel: ObservableObject {
     @Published var showThumbnailView = false
     @Published var currentAnnotationColor = NSColor.yellow
     @Published var currentAnnotationType: AnnotationType = .highlight
-    @Published var bookmarks: [PDFBookmark] = []
-    @Published var showBookmarks = false
-    @Published var selectedText: String = ""
     @Published var notes: [Note] = []
     @Published var annotations: [StoredAnnotation] = []
     @Published var isAddingNote = false
@@ -29,7 +59,8 @@ class PDFViewModel: ObservableObject {
     @Published var newNoteContent = ""
     @Published var newNoteTags: [String] = []
     @Published var showNotes: Bool = false
-    
+    @Published var showBookmarks = false
+    @Published var bookmarks: [PDFBookmark] = []
     // MARK: - Private Properties
     private var searchResults: [PDFSelection] = []
     private weak var pdfView: PDFView?
@@ -186,28 +217,21 @@ class PDFViewModel: ObservableObject {
               let currentSelection = pdfView.currentSelection,
               let currentPage = pdfView.currentPage else { return }
         
-        do {
-            let bounds = currentSelection.bounds(for: currentPage)
-            let boundsArray: [Double] = [bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height]
-            
-            let storedAnnotation = StoredAnnotation(
-                pageIndex: currentPage.pageRef?.pageNumber ?? 0,
-                type: annotationTypeString(),
-                color: currentAnnotationColor.toHex(),
-                contents: currentAnnotationType == .note ? "Note" : nil,
-                bounds: boundsArray,
-                pdf: pdf
-            )
-            
-            modelContext.insert(storedAnnotation)
-            annotations.append(storedAnnotation)
-            
-            let pdfAnnotation = storedAnnotation.toPDFAnnotation()
-            currentPage.addAnnotation(pdfAnnotation)
-            
-        } catch {
-            print("Error adding annotation: \(error)")
-        }
+        let bounds = currentSelection.bounds(for: currentPage)
+        let boundsArray: [Double] = [bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height]
+        
+        let storedAnnotation = StoredAnnotation(
+            pageIndex: currentPage.pageRef?.pageNumber ?? 0,
+            type: annotationTypeString(),
+            color: currentAnnotationColor.toHex(),
+            contents: currentAnnotationType == .note ? "Note" : nil,
+            bounds: boundsArray,
+            pdf: pdf
+        )
+        modelContext.insert(storedAnnotation)
+        annotations.append(storedAnnotation)
+        let pdfAnnotation = storedAnnotation.toPDFAnnotation()
+        currentPage.addAnnotation(pdfAnnotation)
     }
     
     func removeAnnotation(_ annotation: PDFAnnotation) {
@@ -241,35 +265,27 @@ class PDFViewModel: ObservableObject {
         resetNoteForm()
     }
     
-    func deleteNote(_ note: Note) {
-        modelContext.delete(note)
-        notes.removeAll { $0.id == note.id }
-    }
-    
     // MARK: - Bookmark Methods
-    func toggleBookmark() {
-        guard let currentPage = pdfView?.currentPage else { return }
-        
-        if let existingBookmark = bookmarks.first(where: { $0.pageIndex == currentPage.pageRef?.pageNumber }) {
-            bookmarks.removeAll { $0.pageIndex == existingBookmark.pageIndex }
-        } else {
-            let newBookmark = PDFBookmark(
-                pageIndex: currentPage.pageRef?.pageNumber ?? 0,
-                pageLabel: currentPage.label ?? "",
-                timestamp: Date()
-            )
-            bookmarks.append(newBookmark)
-        }
+    func addBookmark() {
+        guard let currentPage = selectedPage else { return }
+        let bookmark = PDFBookmark(
+            pageIndex: currentPage.pageRef?.pageNumber ?? 0,
+            pageLabel: currentPage.label ?? "",
+            timestamp: Date()
+        )
+        bookmarks.append(bookmark)
     }
     
     func goToBookmark(_ bookmark: PDFBookmark) {
-        navigateToPage(bookmark.pageIndex)
+        guard let document = document,
+              let page = document.page(at: bookmark.pageIndex) else { return }
+        pdfView?.go(to: page)
     }
     
     // MARK: - Text Selection
     func copySelectedText() {
         guard let selection = pdfView?.currentSelection?.string else { return }
-        selectedText = selection
+        let selectedText = selection
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(selectedText, forType: .string)
     }
@@ -288,7 +304,7 @@ class PDFViewModel: ObservableObject {
         self.zoomLevel = pdfView.scaleFactor
     }
     
-    private func navigateToPage(_ pageIndex: Int) {
+    internal func navigateToPage(_ pageIndex: Int) {
         guard let pdfView = pdfView,
               let document = pdfView.document,
               let page = document.page(at: pageIndex) else { return }
@@ -310,7 +326,7 @@ class PDFViewModel: ObservableObject {
         }
     }
     
-    private func loadInitialData() async {
+    func loadInitialData() async {
         await loadAnnotations()
         await loadNotes()
     }
@@ -379,6 +395,55 @@ class PDFViewModel: ObservableObject {
         notes.removeAll()
         document = nil
         searchResults.removeAll()
+    }
+}
+
+extension PDFViewModel {
+    func saveAnnotation() async {
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to save annotation: \(error)")
+        }
+    }
+    func restoreAnnotations() {
+        guard let document else { return }
+        
+        // Clear existing annotations first
+//        for pageIndex in 0..<document.pageCount {
+//            if let page = document.page(at: pageIndex) {
+//                page.annotations.removeAll()
+//            }
+//        }
+        // Add stored annotations
+        for annotation in annotations {
+            if let page = document.page(at: annotation.pageIndex) {
+                page.addAnnotation(annotation.toPDFAnnotation())
+            }
+        }
+    }
+}
+
+@MainActor
+final class BookmarkManager: ObservableObject {
+    @Published private(set) var bookmarks: [PDFBookmark] = []
+    
+    func toggleBookmark(for page: PDFPage) {
+        // Bookmark logic here
+        if let existingBookmark = bookmarks.first(where: { $0.pageIndex == page.pageRef?.pageNumber }) {
+            bookmarks.removeAll { $0.pageIndex == existingBookmark.pageIndex }
+        } else {
+            let newBookmark = PDFBookmark(
+                pageIndex: page.pageRef?.pageNumber ?? 0,
+                pageLabel: page.label ?? "",
+                timestamp: Date()
+            )
+            bookmarks.append(newBookmark)
+        }
+    }
+    
+    func goToBookmark(_ bookmark: PDFBookmark) {
+        // Navigation logic here
     }
 }
 

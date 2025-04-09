@@ -7,6 +7,7 @@ struct PDFListView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var searchText = ""
     @Query private var pdfs: [PDF]
+    @State private var selectedPDF: PDF?
     @State private var isShowingFilePicker = false
     @State private var showError = false
     @State private var errorMessage = ""
@@ -29,7 +30,7 @@ struct PDFListView: View {
     }
     var body: some View {
         List {
-            ForEach(pdfs) { pdf in
+            ForEach(filteredAndSortedPDF) { pdf in
                 NavigationLink(value: pdf) {
                     PDFRowView(pdf: pdf)
                 }
@@ -58,6 +59,7 @@ struct PDFListView: View {
         .navigationTitle("PDFs")
         .navigationDestination(for: PDF.self) { pdf in
             PDFPreviewView(pdf: pdf, modelContext: modelContext)
+                .id(pdf.id)
         }
         .searchable(text: $searchText, prompt: "Search pdf")
         .toolbar {

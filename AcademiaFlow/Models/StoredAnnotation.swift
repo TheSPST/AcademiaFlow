@@ -6,12 +6,12 @@ import PDFKit
 final class StoredAnnotation {
     @Attribute(.unique) var id: String
     var pageIndex: Int
-    var type: String // highlight, underline, strikethrough, note
-    var color: String // Hex color string
+    var type: String
+    var color: String
     var contents: String?
-    var bounds: [Double] // [x, y, width, height]
+    @Transient var bounds: [Double] = []
     var createdAt: Date
-    @Relationship(deleteRule: .cascade) var pdf: PDF?
+    var pdf: PDF?
     
     init(pageIndex: Int, type: String, color: String, contents: String? = nil, bounds: [Double], pdf: PDF? = nil) {
         self.id = UUID().uuidString
@@ -39,7 +39,10 @@ final class StoredAnnotation {
     }
     
     func toPDFAnnotation() -> PDFAnnotation {
-        let rect = NSRect(x: bounds[0], y: bounds[1], width: bounds[2], height: bounds[3])
+        let rect = NSRect(x: bounds[safe: 0] ?? 0,
+                          y: bounds[safe: 1] ?? 0,
+                          width: bounds[safe: 2] ?? 0,
+                          height: bounds[safe: 3] ?? 0)
         let annotation = PDFAnnotation(bounds: rect, forType: PDFAnnotationSubtype(rawValue: annotationType), withProperties: nil)
         annotation.color = nsColor
         annotation.contents = contents
@@ -47,6 +50,11 @@ final class StoredAnnotation {
     }
 }
 
+extension Collection {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
 extension NSColor {
     convenience init?(hex: String) {
         let r, g, b, a: CGFloat
@@ -70,12 +78,19 @@ extension NSColor {
     }
     
     func toHex() -> String {
+        // Convert to RGB color space first
+        guard let rgbColor = usingColorSpace(.deviceRGB) else {
+            return "#00000000"
+        }
+        
         var r: CGFloat = 0
         var g: CGFloat = 0
         var b: CGFloat = 0
         var a: CGFloat = 0
-        getRed(&r, green: &g, blue: &b, alpha: &a)
-        let rgb: Int = (Int)(r*255)<<24 | (Int)(g*255)<<16 | (Int)(b*255)<<8 | (Int)(a*255)
+        rgbColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+        
+        let rgb: Int = (Int)(r*255)<<24 | (Int)(g*255)<<16 |
+                      (Int)(b*255)<<8 | (Int)(a*255)
         return String(format: "#%08x", rgb)
     }
 }

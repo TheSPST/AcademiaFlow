@@ -52,6 +52,14 @@ struct PDFPreviewView: View {
                     
                     // PDF View
                     PDFKitView(viewModel: viewModel)
+                        .task {
+                            await viewModel.loadInitialData()
+                        }
+                        .onDisappear(perform: {
+                            Task {
+                                await viewModel.saveAnnotation()
+                            }
+                        })
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .overlay {
                             if viewModel.isLoading {
@@ -209,18 +217,22 @@ struct PDFPreviewView: View {
                 Text("Bookmarks")
                     .font(.headline)
                 Spacer()
-                Button(action: viewModel.toggleBookmark) {
+                Button {
+                    viewModel.addBookmark()
+                } label: {
                     Label("Add Bookmark", systemImage: "bookmark.fill")
                 }
                 .buttonStyle(.plain)
             }
             .padding()
             
-            List(viewModel.bookmarks) { bookmark in
-                BookmarkRow(bookmark: bookmark)
-                    .onTapGesture {
-                        viewModel.goToBookmark(bookmark)
-                    }
+            List {
+                ForEach(viewModel.bookmarks, id: \.timestamp) { bookmark in
+                    BookmarkRow(bookmark: bookmark)
+                        .onTapGesture {
+                            viewModel.goToBookmark(bookmark)
+                        }
+                }
             }
         }
     }
@@ -244,8 +256,9 @@ struct PDFPreviewView: View {
                         Text(note.title)
                             .font(.headline)
                         Text(note.content)
-                            .font(.body)
                             .lineLimit(2)
+                            .font(.body)
+                            .foregroundColor(.secondary)
                         if !note.tags.isEmpty {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack {
@@ -262,13 +275,6 @@ struct PDFPreviewView: View {
                         }
                     }
                     .padding(.vertical, 4)
-                    .contextMenu {
-                        Button(role: .destructive) {
-                            viewModel.deleteNote(note)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
                 }
             }
         }

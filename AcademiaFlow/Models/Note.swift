@@ -10,19 +10,16 @@ final class Note: Identifiable {
     var tags: [String]
     var pageNumber: Int?  // Add page number for PDF notes
     
-    @Relationship(inverse: \Document.notes) var document: Document?
-    @Relationship(inverse: \PDF.notes) var pdf: PDF?
+    // Simplify relationship
+    var pdf: PDF?
     
-    init(title: String = "",
-         content: String = "",
-         tags: [String] = [],
-         pageNumber: Int? = nil) {
+    init(title: String, content: String, tags: [String], pageNumber: Int? = nil) {
         self.id = UUID()
         self.title = title
         self.content = content
-        self.timestamp = Date()
         self.tags = tags
         self.pageNumber = pageNumber
+        self.timestamp = Date()
     }
 }
 
@@ -45,7 +42,7 @@ struct NoteSnapshot: Sendable {
 
 // MARK: - Note Management
 extension Note {
-    func update(title: String? = nil, content: String? = nil, tags: Array<String>? = nil) {
+    func update(title: String? = nil, content: String? = nil, tags: [String]? = nil) {
         if let title = title {
             self.title = title
         }

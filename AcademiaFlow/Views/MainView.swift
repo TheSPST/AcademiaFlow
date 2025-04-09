@@ -1,29 +1,65 @@
 import SwiftUI
 import SwiftData
 
+extension ModelContainer {
+    static func create() throws -> ModelContainer {
+        return try ModelContainer(
+            for:
+                Document.self,
+                PDF.self,
+                Reference.self,
+                Note.self,
+                StoredAnnotation.self,
+            configurations: ModelConfiguration(
+                schema: Schema([
+                    Document.self,
+                    PDF.self,
+                    Reference.self,
+                    Note.self,
+                    StoredAnnotation.self
+                ])
+            )
+        )
+    }
+}
+
 @MainActor
 struct MainView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var selectedNavigation: NavigationType? = .documents
+    @State private var container: ModelContainer?
     
     var body: some View {
-        NavigationSplitView {
-            List(NavigationType.allCases, selection: $selectedNavigation) { type in
-                NavigationLink(value: type) {
-                    Label(type.title, systemImage: type.icon)
+        Group {
+            if let container {
+                NavigationSplitView {
+                    List(NavigationType.allCases, selection: $selectedNavigation) { type in
+                        NavigationLink(value: type) {
+                            Label(type.title, systemImage: type.icon)
+                        }
+                    }
+                    .navigationTitle("AcademiaFlow")
+                } content: {
+                    if let selected = selectedNavigation {
+                        selected.destinationView
+                    } else {
+                        Text("Select a section from the sidebar")
+                            .foregroundStyle(.secondary)
+                    }
+                } detail: {
+                    Text("Select an item")
+                        .foregroundStyle(.secondary)
                 }
-            }
-            .navigationTitle("AcademiaFlow")
-        } content: {
-            if let selected = selectedNavigation {
-                selected.destinationView
             } else {
-                Text("Select a section from the sidebar")
-                    .foregroundStyle(.secondary)
+                ProgressView()
+                    .task {
+                        do {
+                            container = try await ModelContainer.create()
+                        } catch {
+                            print("Failed to create container: \(error)")
+                        }
+                    }
             }
-        } detail: {
-            Text("Select an item")
-                .foregroundStyle(.secondary)
         }
     }
 }
