@@ -19,7 +19,8 @@ struct AcademiaFlowApp: App {
                 DocumentVersion.self,
                 Reference.self,
                 Note.self,
-                PDF.self
+                PDF.self,
+                StoredAnnotation.self
             ])
             let modelConfiguration = ModelConfiguration(schema: schema)
             modelContainer = try ModelContainer(for: schema, configurations: [modelConfiguration])
