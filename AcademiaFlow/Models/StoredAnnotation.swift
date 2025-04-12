@@ -2,6 +2,21 @@ import SwiftUI
 import SwiftData
 import PDFKit
 
+// Sendable snapshot struct
+struct StoredAnnotationSnapshot: Sendable {
+    let id: String
+    let pageIndex: Int
+    let type: String
+    let color: String
+    let contents: String?
+    let bounds: [Double]
+    let createdAt: Date
+    let lastModified: Date
+    let category: String?
+    let tags: [String]
+    let isHidden: Bool
+}
+
 @Model
 final class StoredAnnotation {
     @Attribute(.unique) var id: String
@@ -9,21 +24,78 @@ final class StoredAnnotation {
     var type: String
     var color: String
     var contents: String?
-    @Transient var bounds: [Double] = []
+    var boundsX: Double
+    var boundsY: Double
+    var boundsWidth: Double
+    var boundsHeight: Double
     var createdAt: Date
     var pdf: PDF?
     
-    init(pageIndex: Int, type: String, color: String, contents: String? = nil, bounds: [Double], pdf: PDF? = nil) {
+    // CHANGE: Make new properties optional or provide default values
+    var category: String?
+    var lastModified: Date?  // Make optional
+    var isHidden: Bool = false // Default value
+    var tags: [String] = []   // Default empty array
+    
+    // Add computed property for bounds array
+    var bounds: [Double] {
+        [boundsX, boundsY, boundsWidth, boundsHeight]
+    }
+    
+    // Update init to handle optional lastModified
+    init(pageIndex: Int, type: String, color: String, contents: String? = nil, bounds: [Double], pdf: PDF? = nil, category: String? = nil, tags: [String] = []) {
         self.id = UUID().uuidString
         self.pageIndex = pageIndex
         self.type = type
         self.color = color
         self.contents = contents
-        self.bounds = bounds
+        self.boundsX = bounds[safe: 0] ?? 0
+        self.boundsY = bounds[safe: 1] ?? 0
+        self.boundsWidth = bounds[safe: 2] ?? 0
+        self.boundsHeight = bounds[safe: 3] ?? 0
         self.createdAt = Date()
+        self.lastModified = Date()  // Set initial value
         self.pdf = pdf
+        self.category = category
+        self.tags = tags
+        self.isHidden = false
     }
     
+    // Add convenience initializer for creating from snapshot
+    convenience init(from snapshot: StoredAnnotationSnapshot, pdf: PDF? = nil) {
+        self.init(
+            pageIndex: snapshot.pageIndex,
+            type: snapshot.type,
+            color: snapshot.color,
+            contents: snapshot.contents,
+            bounds: snapshot.bounds,
+            pdf: pdf,
+            category: snapshot.category,
+            tags: snapshot.tags
+        )
+        self.id = snapshot.id
+        self.createdAt = snapshot.createdAt
+        self.lastModified = snapshot.lastModified
+        self.isHidden = snapshot.isHidden
+    }
+    
+    var snapshot: StoredAnnotationSnapshot {
+        StoredAnnotationSnapshot(
+            id: id,
+            pageIndex: pageIndex,
+            type: type,
+            color: color,
+            contents: contents,
+            bounds: bounds,
+            createdAt: createdAt,
+            lastModified: lastModified ?? createdAt,  // Use createdAt as fallback
+            category: category,
+            tags: tags,
+            isHidden: isHidden
+        )
+    }
+    
+    // Rest of the implementation remains the same...
     var annotationType: String {
         switch type {
         case "highlight": return PDFAnnotationSubtype.highlight.rawValue
@@ -39,15 +111,21 @@ final class StoredAnnotation {
     }
     
     func toPDFAnnotation() -> PDFAnnotation {
-        let rect = NSRect(x: bounds[safe: 0] ?? 0,
-                          y: bounds[safe: 1] ?? 0,
-                          width: bounds[safe: 2] ?? 0,
-                          height: bounds[safe: 3] ?? 0)
-        let annotation = PDFAnnotation(bounds: rect, forType: PDFAnnotationSubtype(rawValue: annotationType), withProperties: nil)
+        let rect = NSRect(x: boundsX,
+                          y: boundsY,
+                          width: boundsWidth,
+                          height: boundsHeight)
+        
+        let annotation = PDFAnnotation(bounds: rect,
+                                       forType: PDFAnnotationSubtype(rawValue: annotationType),
+                                       withProperties: nil)
+        
         annotation.color = nsColor
         annotation.contents = contents
+        
         return annotation
     }
+    
 }
 
 extension Collection {
@@ -78,7 +156,6 @@ extension NSColor {
     }
     
     func toHex() -> String {
-        // Convert to RGB color space first
         guard let rgbColor = usingColorSpace(.deviceRGB) else {
             return "#00000000"
         }

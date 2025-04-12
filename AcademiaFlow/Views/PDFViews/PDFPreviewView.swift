@@ -63,11 +63,6 @@ struct PDFPreviewView: View {
                         .task {
                             await viewModel.loadInitialData()
                         }
-                        .onDisappear(perform: {
-                            Task {
-                                await viewModel.saveAnnotation()
-                            }
-                        })
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .overlay {
                             if viewModel.isLoading {
@@ -198,7 +193,7 @@ struct PDFPreviewView: View {
                 
                 Button(action: {
                     Task { @MainActor in
-                        if let error = viewModel.addAnnotation() {
+                        if let error = await viewModel.addAnnotation() {
                             errorHandler.handle(error)
                         }
                     }

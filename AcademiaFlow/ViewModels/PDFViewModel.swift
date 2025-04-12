@@ -9,7 +9,6 @@ protocol PDFViewModelProtocol: ObservableObject {
     var currentPage: Int { get set }
     var totalPages: Int { get }
     func loadPDF() async -> (any AppError)?
-    func addAnnotation() -> (any AppError)?
     func addNote()
 }
 
@@ -22,11 +21,11 @@ protocol PDFSearchable {
 }
 
 /// Protocol for PDF annotation functionality
-@MainActor
-protocol PDFAnnotatable {
-    func addAnnotation() -> (any AppError)?
-    func removeAnnotation(_ annotation: PDFAnnotation)
-}
+//@MainActor
+//protocol PDFAnnotatable {
+//    func addAnnotation() -> (any AppError)?
+//    func removeAnnotation(_ annotation: PDFAnnotation)
+//}
 
 /// Protocol for PDF navigation functionality
 @MainActor
@@ -37,7 +36,7 @@ protocol PDFNavigatable {
 }
 
 @MainActor
-class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAnnotatable, PDFNavigatable {
+class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFNavigatable {
     // MARK: - Published Properties
     @Published private(set) var isLoading = true
     @Published private(set) var loadError: Error?
@@ -54,6 +53,7 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
     @Published var currentAnnotationType: AnnotationType = .highlight
     @Published var notes: [Note] = []
     @Published var annotations: [StoredAnnotation] = []
+    private var annotationSnapshots: [StoredAnnotationSnapshot] = []
     @Published var isAddingNote = false
     @Published var newNoteTitle = ""
     @Published var newNoteContent = ""
@@ -74,6 +74,14 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
     
     @Published private(set) var isScrollingAnimated = false
     
+    @Published var filteredAnnotations: [StoredAnnotation] = []
+    @Published var selectedAnnotations: Set<String> = []
+    @Published var annotationFilter: AnnotationFilter = .all
+    @Published var redoStack: [PDFAnnotation] = []
+    @Published var selectedCategory: String?
+    @Published var selectedTags: Set<String> = []
+    
+    var annotationService: PDFAnnotationService!
     // MARK: - Private Properties
     private var searchResults: [PDFSelection] = []
     private weak var pdfView: PDFView?
@@ -95,12 +103,23 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
         case note
     }
     
+    enum AnnotationFilter {
+        case all
+        case highlights
+        case underlines
+        case strikethrough
+        case notes
+        case category(String)
+        case tags([String])
+    }
+    
     // MARK: - Initialization
     init(pdf: PDF, modelContext: ModelContext) {
         self.pdf = pdf
         self.modelContext = modelContext
         
         Task { @MainActor in
+            self.annotationService = PDFAnnotationService(modelContainer: modelContext.container)
             await self.loadInitialData()
             self.setupShortcuts()
         }
@@ -247,25 +266,22 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
     }
     // MARK: - Annotation Methods
     @MainActor
-    func addAnnotation() -> (any AppError)? {
+    func addAnnotation() async -> (any AppError)? {
         do {
-            // Check for required conditions
-            guard let pdfView = pdfView else {
-                return PDFError.annotationFailed(pdfNSError("PDF view not initialized"))
-            }
-            guard let currentSelection = pdfView.currentSelection else {
-                return PDFError.annotationFailed(pdfNSError("No text selected"))
+            guard let pdfView = pdfView,
+                  let currentSelection = pdfView.currentSelection,
+                  let currentPage = pdfView.currentPage else {
+                return PDFError.annotationFailed(pdfNSError("Invalid view state"))
             }
             
-            guard let currentPage = pdfView.currentPage else {
-                return PDFError.annotationFailed(pdfNSError("No page selected"))
-            }
-            
-            // Get bounds for the annotation
             let bounds = currentSelection.bounds(for: currentPage)
-            let boundsArray: [Double] = [bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height]
+            let boundsArray: [Double] = [
+                bounds.origin.x,
+                bounds.origin.y,
+                bounds.size.width,
+                bounds.size.height
+            ]
             
-            // Create annotation
             let storedAnnotation = StoredAnnotation(
                 pageIndex: currentPage.pageRef?.pageNumber ?? 0,
                 type: annotationTypeString(),
@@ -275,21 +291,22 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
                 pdf: pdf
             )
             
-            // Store annotation
-            modelContext.insert(storedAnnotation)
             annotations.append(storedAnnotation)
             
-            // Create and add PDF annotation
-            let pdfAnnotation = storedAnnotation.toPDFAnnotation()
+            let pdfAnnotation = PDFAnnotation(bounds: bounds,
+                                            forType: PDFAnnotationSubtype(rawValue: annotationTypeString()),
+                                            withProperties: nil)
+            pdfAnnotation.color = currentAnnotationColor
+            pdfAnnotation.contents = currentAnnotationType == .note ? "Note" : nil
+            
             currentPage.addAnnotation(pdfAnnotation)
             
-            // Store for undo functionality
             if let lastAnnotation = currentPage.annotations.last {
                 lastAnnotations.append(lastAnnotation)
             }
             
-            // Save immediately
-            try modelContext.save()
+            // Send snapshot instead of StoredAnnotation
+            try await annotationService.saveAnnotation(storedAnnotation.snapshot, pdfID: pdf.persistentModelID)
             return nil
             
         } catch {
@@ -307,6 +324,16 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
             modelContext.delete(storedAnnotation)
             annotations.removeAll { $0.id == storedAnnotation.id }
         }
+    }
+    
+    func deleteSelectedAnnotations() {
+        for id in selectedAnnotations {
+            if let annotation = annotations.first(where: { $0.id == id }),
+               let pdfAnnotation = pdfView?.currentPage?.annotations.first(where: { $0.bounds.array == annotation.bounds }) {
+                removeAnnotation(pdfAnnotation)
+            }
+        }
+        selectedAnnotations.removeAll()
     }
     
     // MARK: - Note Management
@@ -411,9 +438,14 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
     
     private func loadAnnotations() async {
         do {
-            let descriptor = FetchDescriptor<StoredAnnotation>()
-            let allAnnotations = try modelContext.fetch(descriptor)
-            annotations = allAnnotations.filter { $0.pdf?.persistentModelID == pdf.persistentModelID }
+            // Pass persistentModelID instead of PDF object
+            let snapshots = try await annotationService.loadAnnotations(forPDFWithID: pdf.persistentModelID)
+            await MainActor.run {
+                // Create new StoredAnnotations from snapshots on the main actor
+                self.annotations = snapshots.map { snapshot in
+                    StoredAnnotation(from: snapshot, pdf: self.pdf)
+                }
+            }
             await restoreAnnotations()
         } catch {
             print("Error loading annotations: \(error)")
@@ -430,12 +462,19 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
         }
     }
     
+    @MainActor
     private func restoreAnnotations() async {
         guard let document = pdfView?.document else { return }
         
         for annotation in annotations {
             if let page = document.page(at: annotation.pageIndex) {
-                page.addAnnotation(annotation.toPDFAnnotation())
+                print("DEBUG: Restoring annotation on page \(annotation.pageIndex)")
+                print("DEBUG: Stored bounds: \(annotation.bounds)")
+                print("DEBUG: Page bounds: \(page.bounds(for: .mediaBox))")
+                
+                let pdfAnnotation = annotation.toPDFAnnotation()
+                print("DEBUG: Restored annotation bounds: \(pdfAnnotation.bounds)")
+                page.addAnnotation(pdfAnnotation)
             }
         }
     }
@@ -530,6 +569,12 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
                 return nil
             }
             
+            // Command + Shift + Z = Redo
+            if event.modifierFlags.contains([.command, .shift]) && event.charactersIgnoringModifiers == "z" {
+                self.redoAnnotation()
+                return nil
+            }
+            
             return event
         }
     }
@@ -546,10 +591,54 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
         guard let lastAnnotation = lastAnnotations.popLast(),
               let page = lastAnnotation.page else { return }
         
+        redoStack.append(lastAnnotation)
         page.removeAnnotation(lastAnnotation)
         if let storedAnnotation = annotations.last {
             modelContext.delete(storedAnnotation)
             annotations.removeLast()
+        }
+    }
+    
+    func redoAnnotation() {
+        guard let annotationToRedo = redoStack.popLast(),
+              let page = annotationToRedo.page else { return }
+        
+        page.addAnnotation(annotationToRedo)
+        lastAnnotations.append(annotationToRedo)
+        
+        // Recreate stored annotation
+        let bounds = annotationToRedo.bounds
+        let storedAnnotation = StoredAnnotation(
+            pageIndex: page.pageRef?.pageNumber ?? 0,
+            type: annotationToRedo.type ?? "highlight",
+            color: annotationToRedo.color.toHex(),
+            contents: annotationToRedo.contents,
+            bounds: bounds.array,
+            pdf: pdf
+        )
+        
+        annotations.append(storedAnnotation)
+        Task {
+            try await annotationService.saveAnnotation(storedAnnotation.snapshot, pdfID: pdf.persistentModelID)
+        }
+    }
+    
+    func filterAnnotations() {
+        switch annotationFilter {
+        case .all:
+            filteredAnnotations = annotations
+        case .highlights:
+            filteredAnnotations = annotations.filter { $0.type == "highlight" }
+        case .underlines:
+            filteredAnnotations = annotations.filter { $0.type == "underline" }
+        case .strikethrough:
+            filteredAnnotations = annotations.filter { $0.type == "strikethrough" }
+        case .notes:
+            filteredAnnotations = annotations.filter { $0.type == "note" }
+        case .category(let category):
+            filteredAnnotations = annotations.filter { $0.category == category }
+        case .tags(let tags):
+            filteredAnnotations = annotations.filter { !Set($0.tags).isDisjoint(with: tags) }
         }
     }
     
@@ -574,38 +663,11 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFAn
             storedAnnotation.color = color?.toHex() ?? storedAnnotation.color
             storedAnnotation.contents = contents ?? storedAnnotation.contents
             Task {
-                await saveAnnotation()
+                try await annotationService.saveAnnotation(storedAnnotation.snapshot, pdfID: pdf.persistentModelID)
             }
         }
     }
 }
-
-extension PDFViewModel {
-    func saveAnnotation() async {
-        do {
-            try modelContext.save()
-        } catch {
-            print("Failed to save annotation: \(error)")
-        }
-    }
-    func restoreAnnotations() {
-        guard let document = document else { return }
-        
-        // Clear existing annotations first
-//        for pageIndex in 0..<document.pageCount {
-//            if let page = document.page(at: pageIndex) {
-//                page.annotations.removeAll()
-//            }
-//        }
-        // Add stored annotations
-        for annotation in annotations {
-            if let page = document.page(at: annotation.pageIndex) {
-                page.addAnnotation(annotation.toPDFAnnotation())
-            }
-        }
-    }
-}
-
 extension NSRect {
     var array: [Double] {
         [origin.x, origin.y, size.width, size.height]

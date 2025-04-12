@@ -52,12 +52,11 @@ struct PDFKitView: NSViewRepresentable {
     }
     
     func updateNSView(_ pdfView: TrackingPDFView, context: Context) {
-        pdfView.scaleFactor = viewModel.zoomLevel
-        
-        if let document = pdfView.document,
-           let page = document.page(at: viewModel.currentPage - 1) {
-            pdfView.go(to: PDFDestination(page: page, at: NSPoint(x: 0, y: page.bounds(for: .mediaBox).size.height)))
-        }
+//        pdfView.scaleFactor = viewModel.zoomLevel
+//        if let document = pdfView.document,
+//           let page = document.page(at: viewModel.currentPage - 1) {
+//            pdfView.go(to: PDFDestination(page: page, at: NSPoint(x: 0, y: page.bounds(for: .mediaBox).size.height)))
+//        }
     }
     
     class Coordinator: NSObject {

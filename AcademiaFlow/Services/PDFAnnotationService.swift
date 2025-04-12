@@ -1,26 +1,37 @@
 import PDFKit
 import SwiftData
 
-// ADD: Separate service for annotation handling
-actor PDFAnnotationService {
-    private let modelContext: ModelContext
-    
-    init(modelContext: ModelContext) {
-        self.modelContext = modelContext
+@ModelActor
+final actor PDFAnnotationService {
+    static func create(withContainer container: ModelContainer) -> PDFAnnotationService {
+        PDFAnnotationService(modelContainer: container)
     }
-    
-    func saveAnnotation(_ annotation: StoredAnnotation) async throws {
+
+    func saveAnnotation(_ snapshot: StoredAnnotationSnapshot, pdfID: PersistentIdentifier) throws {
+        // All operations now properly isolated within actor
+        let descriptor = FetchDescriptor<PDF>(predicate: #Predicate<PDF> { pdf in
+            pdf.persistentModelID == pdfID
+        })
+        guard let pdf = try modelContext.fetch(descriptor).first else {
+            throw PDFError.annotationFailed(NSError(domain: "PDF", code: -1, userInfo: [NSLocalizedDescriptionKey: "PDF not found"]))
+        }
+        
+        let annotation = StoredAnnotation(from: snapshot, pdf: pdf)
         modelContext.insert(annotation)
         try modelContext.save()
     }
-    
-    func loadAnnotations(for pdf: PDF) async throws -> [StoredAnnotation] {
-        let descriptor = FetchDescriptor<StoredAnnotation>()
-        let allAnnotations = try modelContext.fetch(descriptor)
-        return allAnnotations.filter { $0.pdf?.persistentModelID == pdf.persistentModelID }
+
+    func loadAnnotations(forPDFWithID pdfID: PersistentIdentifier) throws -> [StoredAnnotationSnapshot] {
+        let descriptor = FetchDescriptor<StoredAnnotation>(
+            predicate: #Predicate { annotation in
+                annotation.pdf?.persistentModelID == pdfID
+            }
+        )
+        // CHANGE: More efficient single fetch with predicate
+        return try modelContext.fetch(descriptor).map(\.snapshot)
     }
-    
-    func deleteAnnotation(_ annotation: StoredAnnotation) async throws {
+
+    func deleteAnnotation(_ annotation: StoredAnnotation) throws {
         modelContext.delete(annotation)
         try modelContext.save()
     }

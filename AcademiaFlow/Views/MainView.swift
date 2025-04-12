@@ -33,7 +33,7 @@ struct MainView: View {
     
     var body: some View {
         Group {
-            if let container {
+            if container != nil {
                 NavigationSplitView {
                     List(NavigationType.allCases, selection: $selectedNavigation) { type in
                         NavigationLink(value: type) {
