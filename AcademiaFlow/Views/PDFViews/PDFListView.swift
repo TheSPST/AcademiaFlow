@@ -21,7 +21,7 @@ struct PDFListView: View {
             title: "PDFs",
             rowContent: { pdf in
                 Button {
-                    selectedPDF = pdf // Update selection directly
+                    selectedPDF = pdf
                 } label: {
                     ItemRowView(
                         item: pdf,
@@ -35,6 +35,18 @@ struct PDFListView: View {
             onDelete: deletePDF,
             onDuplicate: duplicatePDF
         )
+        .onChange(of: pdfs) { _, newPDFs in
+            // Auto-select first PDF if none is selected
+            if selectedPDF == nil && !newPDFs.isEmpty {
+                selectedPDF = newPDFs[0]
+            }
+        }
+        .onAppear {
+            // Select first PDF when view appears if none is selected
+            if selectedPDF == nil && !pdfs.isEmpty {
+                selectedPDF = pdfs[0]
+            }
+        }
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
                 SortByMenuView(sortOption: $sortOption)

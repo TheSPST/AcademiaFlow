@@ -10,9 +10,9 @@ import Foundation
 struct DocumentListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Document.updatedAt, order: .reverse) private var documents: [Document]
+    @Binding var selectedDocument: Document?
     @State private var showingNewDocument = false
     @State private var searchText = ""
-    @State private var selectedDocument: Document?
     @State private var sortOption: SortOption = .modified
     
     var body: some View {
@@ -22,20 +22,32 @@ struct DocumentListView: View {
             items: documents,
             title: "Documents",
             rowContent: { document in
-                NavigationLink(value: document) {
+                Button {
+                    selectedDocument = document
+                } label: {
                     ItemRowView(
                         item: document,
                         subtitle: "\(document.documentType.rawValue.capitalized) • \(document.citationStyle.rawValue.uppercased())",
                         metadata: "Last modified: \(document.displayTimestamp.formatted())"
                     )
                 }
+                .buttonStyle(.plain)
+                .background(selectedDocument?.id == document.id ? Color.accentColor.opacity(0.1) : Color.clear)
             },
             onDelete: deleteDocument,
             onDuplicate: duplicateDocument
         )
-        .navigationDestination(for: Document.self) { document in
-            DocumentDetailView(document: document)
-                .id(document.id)
+        .onChange(of: documents) { _, newDocuments in
+            // Auto-select first document if none is selected
+            if selectedDocument == nil && !newDocuments.isEmpty {
+                selectedDocument = newDocuments[0]
+            }
+        }
+        .onAppear {
+            // Select first document when view appears if none is selected
+            if selectedDocument == nil && !documents.isEmpty {
+                selectedDocument = documents[0]
+            }
         }
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
@@ -110,7 +122,7 @@ struct DocumentRow: View {
 struct DocumentListView_Previews: PreviewProvider {
     static var previews: some View {
         NavigationStack {
-            DocumentListView()
+            DocumentListView(selectedDocument: .constant(nil))
         }
         .modelContainer(PreviewSampleData.shared.container)
     }

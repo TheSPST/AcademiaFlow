@@ -29,6 +29,9 @@ struct MainView: View {
     @EnvironmentObject private var errorHandler: ErrorHandler
     @State private var selectedNavigation: NavigationType? = .documents
     @State private var selectedPDF: PDF?
+    @State private var selectedDocument: Document?
+    @State private var selectedReference: Reference?
+    @State private var selectedNote: Note?
     @State private var container: ModelContainer?
     
     var body: some View {
@@ -41,19 +44,36 @@ struct MainView: View {
                         }
                     }
                     .navigationTitle("AcademiaFlow")
+                    .onChange(of: selectedNavigation) { _, newValue in
+                        // Reset selections when navigation changes
+                        selectedPDF = nil
+                        selectedDocument = nil
+                        selectedReference = nil
+                        selectedNote = nil
+                    }
                 } content: {
                     if let selected = selectedNavigation {
-                        selected.destinationView(selectedPDF: $selectedPDF)
+                        selected.destinationView(
+                            selectedPDF: $selectedPDF,
+                            selectedDocument: $selectedDocument,
+                            selectedReference: $selectedReference,
+                            selectedNote: $selectedNote
+                        )
                     } else {
                         Text("Select a section from the sidebar")
                             .foregroundStyle(.secondary)
                     }
                 } detail: {
-                    if let pdf = selectedPDF {
-                        PDFPreviewView(pdf: pdf, modelContext: modelContext)
-                            .id(pdf.id) // Ensure view updates when PDF changes
+                    if let selected = selectedNavigation {
+                        selected.detailView(
+                            modelContext: modelContext,
+                            selectedPDF: $selectedPDF,
+                            selectedDocument: $selectedDocument,
+                            selectedReference: $selectedReference,
+                            selectedNote: $selectedNote
+                        )
                     } else {
-                        Text("Select a PDF")
+                        Text("Select a section")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -99,16 +119,62 @@ enum NavigationType: String, CaseIterable, @preconcurrency Identifiable {
     }
     
     @ViewBuilder
-    func destinationView(selectedPDF: Binding<PDF?>) -> some View {
+    func destinationView(
+        selectedPDF: Binding<PDF?>,
+        selectedDocument: Binding<Document?>,
+        selectedReference: Binding<Reference?>,
+        selectedNote: Binding<Note?>
+    ) -> some View {
         switch self {
         case .documents:
-            DocumentListView()
+            DocumentListView(selectedDocument: selectedDocument)
         case .pdfs:
             PDFListView(selectedPDF: selectedPDF)
         case .references:
-            ReferenceListView()
+            ReferenceListView(selectedReference: selectedReference)
         case .notes:
-            NoteListView()
+            NoteListView(selectedNote: selectedNote)
+        }
+    }
+    
+    @ViewBuilder
+    func detailView(
+        modelContext: ModelContext,
+        selectedPDF: Binding<PDF?>,
+        selectedDocument: Binding<Document?>,
+        selectedReference: Binding<Reference?>,
+        selectedNote: Binding<Note?>
+    ) -> some View {
+        switch self {
+        case .documents:
+            if let document = selectedDocument.wrappedValue {
+                DocumentDetailView(document: document)
+            } else {
+                Text("Select a document")
+                    .foregroundStyle(.secondary)
+            }
+        case .pdfs:
+            if let pdf = selectedPDF.wrappedValue {
+                PDFPreviewView(pdf: pdf, modelContext: modelContext)
+                    .id(pdf.id)
+            } else {
+                Text("Select a PDF")
+                    .foregroundStyle(.secondary)
+            }
+        case .references:
+            if let reference = selectedReference.wrappedValue {
+                ReferenceDetailView(reference: reference)
+            } else {
+                Text("Select a reference")
+                    .foregroundStyle(.secondary)
+            }
+        case .notes:
+            if let note = selectedNote.wrappedValue {
+                NoteDetailView(note: note)
+            } else {
+                Text("Select a note")
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }
