@@ -276,10 +276,7 @@ private struct ExportOptionsView: View {
                 Section {
                     ForEach(ExportFormat.allCases, id: \.self) { format in
                         Button {
-                            debugPrint("format", format.displayName)
-                            Task {
-                                await viewModel.prepareExport(as: format)
-                            }
+                            exportDocument(as: format)
                             dismiss()
                         } label: {
                             HStack {
@@ -308,6 +305,12 @@ private struct ExportOptionsView: View {
         }
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
+    }
+    
+    func exportDocument(as format: ExportFormat) {
+        Task {
+            await viewModel.prepareExport(as: format)
+        }
     }
 }
 // MARK: - Tab

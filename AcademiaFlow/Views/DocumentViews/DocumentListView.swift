@@ -1,67 +1,36 @@
 import SwiftUI
 import SwiftData
+
 struct DocumentListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Document.updatedAt, order: .reverse) private var documents: [Document]
     @State private var showingNewDocument = false
     @State private var searchText = ""
     @State private var selectedDocument: Document?
-    @State private var showingSortMenu = false
     @State private var sortOption: SortOption = .modified
-    var filteredAndSortedDocuments: [Document] {
-        let filtered = searchText.isEmpty ? documents : documents.filter { document in
-            document.title.localizedCaseInsensitiveContains(searchText) ||
-            document.tags.contains { $0.localizedCaseInsensitiveContains(searchText) }
-        }
-        
-        return filtered.sorted { doc1, doc2 in
-            switch sortOption {
-            case .modified:
-                return doc1.updatedAt > doc2.updatedAt
-            case .created:
-                return doc1.createdAt > doc2.createdAt
-            case .title:
-                return doc1.title < doc2.title
-            case .type:
-                return doc1.documentType.rawValue < doc2.documentType.rawValue
-            }
-        }
-    }
     
     var body: some View {
-        List {
-            ForEach(filteredAndSortedDocuments) { document in
+        GenericListView(
+            searchText: $searchText,
+            sortOption: $sortOption,
+            items: documents,
+            title: "Documents",
+            rowContent: { document in
                 NavigationLink(value: document) {
-                    DocumentRow(document: document)
+                    ItemRowView(
+                        item: document,
+                        subtitle: "\(document.documentType.rawValue.capitalized) • \(document.citationStyle.rawValue.uppercased())",
+                        metadata: "Last modified: \(document.displayTimestamp.formatted())"
+                    )
                 }
-                .swipeActions(edge: .leading) {
-                    Button {
-                        duplicateDocument(document)
-                    } label: {
-                        Label("Duplicate", systemImage: "plus.square.on.square")
-                    }
-                    .tint(.blue)
-                }
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
-                        deleteDocument(document)
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                }
-                .contextMenu {
-                    DocumentContextMenu(document: document,
-                                     onDuplicate: { duplicateDocument(document) },
-                                     onDelete: { deleteDocument(document) })
-                }
-            }
-        }
-        .navigationTitle("Documents")
+            },
+            onDelete: deleteDocument,
+            onDuplicate: duplicateDocument
+        )
         .navigationDestination(for: Document.self) { document in
             DocumentDetailView(document: document)
                 .id(document.id)
         }
-        .searchable(text: $searchText, prompt: "Search documents")
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
                 SortByMenuView(sortOption: $sortOption)
@@ -74,8 +43,6 @@ struct DocumentListView: View {
             NewDocumentView()
                 .interactiveDismissDisabled()
         }
-        .animation(.default, value: sortOption)
-        .animation(.default, value: searchText)
     }
     
     private func duplicateDocument(_ document: Document) {
@@ -85,7 +52,8 @@ struct DocumentListView: View {
             documentType: document.documentType,
             tags: document.tags,
             citationStyle: document.citationStyle,
-            template: document.template, filePath: document.filePath
+            template: document.template,
+            filePath: document.filePath
         )
         modelContext.insert(duplicate)
     }
@@ -96,18 +64,7 @@ struct DocumentListView: View {
         }
     }
 }
-enum SortOption {
-    case modified, created, title, type
-    
-    var label: String {
-        switch self {
-        case .modified: return "Last Modified"
-        case .created: return "Date Created"
-        case .title: return "Title"
-        case .type: return "Document Type"
-        }
-    }
-}
+
 struct DocumentRow: View {
     let document: Document
     
@@ -140,25 +97,6 @@ struct DocumentRow: View {
             }
         }
         .padding(.vertical, 4)
-    }
-}
-struct DocumentContextMenu: View {
-    let document: Document
-    let onDuplicate: () -> Void
-    let onDelete: () -> Void
-    
-    var body: some View {
-        Button {
-            onDuplicate()
-        } label: {
-            Label("Duplicate", systemImage: "plus.square.on.square")
-        }
-        
-        Button(role: .destructive) {
-            onDelete()
-        } label: {
-            Label("Delete", systemImage: "trash")
-        }
     }
 }
 

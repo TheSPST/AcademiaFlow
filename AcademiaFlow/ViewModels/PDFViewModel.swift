@@ -468,12 +468,12 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFNa
         
         for annotation in annotations {
             if let page = document.page(at: annotation.pageIndex) {
-                print("DEBUG: Restoring annotation on page \(annotation.pageIndex)")
-                print("DEBUG: Stored bounds: \(annotation.bounds)")
-                print("DEBUG: Page bounds: \(page.bounds(for: .mediaBox))")
+                //print("DEBUG: Restoring annotation on page \(annotation.pageIndex)")
+                //print("DEBUG: Stored bounds: \(annotation.bounds)")
+                //print("DEBUG: Page bounds: \(page.bounds(for: .mediaBox))")
                 
                 let pdfAnnotation = annotation.toPDFAnnotation()
-                print("DEBUG: Restored annotation bounds: \(pdfAnnotation.bounds)")
+                //print("DEBUG: Restored annotation bounds: \(pdfAnnotation.bounds)")
                 page.addAnnotation(pdfAnnotation)
             }
         }

@@ -40,7 +40,6 @@ struct DocumentEditView: View {
                     )
                 )
                 .richTextFormatToolbarConfig(.init(colorPickers: []))
-                //                .viewDebug()
                 .padding()
             }
         }

@@ -11,56 +11,30 @@ struct PDFListView: View {
     @Binding var selectedPDF: PDF?
     @State private var searchText = ""
     @State private var isShowingFilePicker = false
-    @State private var showError = false
-    @State private var errorMessage = ""
     @State private var sortOption: SortOption = .modified
     
-    var filteredAndSortedPDF: [PDF] {
-        let filtered = searchText.isEmpty ? pdfs : pdfs.filter { pdf in
-            pdf.fileName.localizedCaseInsensitiveContains(searchText) ||
-            pdf.tags.contains { $0.localizedCaseInsensitiveContains(searchText) }
-        }
-        return filtered.sorted { pdf1, pdf2 in
-            switch sortOption {
-            case .modified:
-                return pdf1.addedAt > pdf2.addedAt
-            case .created:
-                return pdf1.addedAt > pdf2.addedAt
-            case .title, .type:
-                return pdf1.fileName > pdf2.fileName
-            }
-        }
-    }
-    
     var body: some View {
-        List(filteredAndSortedPDF, selection: $selectedPDF) { pdf in
-            NavigationLink(value: pdf) {
-                PDFRowView(pdf: pdf)
-            }
-            .tag(pdf)
-            .swipeActions(edge: .leading) {
+        GenericListView(
+            searchText: $searchText,
+            sortOption: $sortOption,
+            items: pdfs,
+            title: "PDFs",
+            rowContent: { pdf in
                 Button {
-                    duplicatePDF(pdf)
+                    selectedPDF = pdf // Update selection directly
                 } label: {
-                    Label("Duplicate", systemImage: "plus.square.on.square")
+                    ItemRowView(
+                        item: pdf,
+                        subtitle: pdf.authors.joined(separator: ", "),
+                        metadata: "Added \(pdf.displayTimestamp.formatted())"
+                    )
                 }
-                .tint(.blue)
-            }
-            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                Button(role: .destructive) {
-                    deletePDF(pdf)
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-            }
-            .contextMenu {
-                PDFContextMenu(document: pdf,
-                               onDuplicate: { duplicatePDF(pdf) },
-                               onDelete: { deletePDF(pdf) })
-            }
-        }
-        .navigationTitle("PDFs")
-        .searchable(text: $searchText, prompt: "Search PDF")
+                .buttonStyle(.plain)
+                .background(selectedPDF?.id == pdf.id ? Color.accentColor.opacity(0.1) : Color.clear)
+            },
+            onDelete: deletePDF,
+            onDuplicate: duplicatePDF
+        )
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
                 SortByMenuView(sortOption: $sortOption)
@@ -77,11 +51,6 @@ struct PDFListView: View {
             Task {
                 await handleSelectedFiles(result)
             }
-        }
-        .alert("Error", isPresented: $showError) {
-            Button("OK") {}
-        } message: {
-            Text(errorMessage)
         }
     }
     
@@ -148,81 +117,6 @@ struct PDFListView: View {
             await MainActor.run {
                 errorHandler.handle(PDFError.fileNotFound)
             }
-        }
-    }
-}
-
-struct PDFRowView: View {
-    let pdf: PDF
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(pdf.title ?? pdf.fileName)
-                .font(.headline)
-            
-            let authors = pdf.authors
-            if !authors.isEmpty {
-                Text(pdf.authors.joined(separator: ", "))
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-            
-            let tags = pdf.tags
-            if !tags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
-                        ForEach(pdf.tags, id: \.self) { tag in
-                            Text(tag)
-                                .font(.caption)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.secondary.opacity(0.2))
-                                .cornerRadius(8)
-                        }
-                    }
-                }
-            }
-            
-            Text("Added \(pdf.addedAt.formatted())")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-struct SortByMenuView: View {
-    @Binding var sortOption: SortOption
-    var body: some View {
-        Menu {
-            Picker("Sort by", selection: $sortOption) {
-                Text("Last Modified").tag(SortOption.modified)
-                Text("Date Created").tag(SortOption.created)
-                Text("Title").tag(SortOption.title)
-                Text("Type").tag(SortOption.type)
-            }
-        } label: {
-            Label("Sort", systemImage: "arrow.up.arrow.down")
-        }
-    }
-}
-
-struct PDFContextMenu: View {
-    let document: PDF
-    let onDuplicate: () -> Void
-    let onDelete: () -> Void
-    
-    var body: some View {
-        Button {
-            onDuplicate()
-        } label: {
-            Label("Duplicate", systemImage: "plus.square.on.square")
-        }
-        
-        Button(role: .destructive) {
-            onDelete()
-        } label: {
-            Label("Delete", systemImage: "trash")
         }
     }
 }

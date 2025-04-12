@@ -51,7 +51,7 @@ struct MainView: View {
                 } detail: {
                     if let pdf = selectedPDF {
                         PDFPreviewView(pdf: pdf, modelContext: modelContext)
-                            .id(pdf.id)
+                            .id(pdf.id) // Ensure view updates when PDF changes
                     } else {
                         Text("Select a PDF")
                             .foregroundStyle(.secondary)
