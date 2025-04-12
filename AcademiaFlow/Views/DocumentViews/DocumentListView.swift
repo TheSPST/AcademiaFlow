@@ -1,5 +1,11 @@
+// Optimize imports
 import SwiftUI
 import SwiftData
+
+// Remove preview for production builds
+#if DEBUG
+import Foundation
+#endif
 
 struct DocumentListView: View {
     @Environment(\.modelContext) private var modelContext
@@ -100,14 +106,20 @@ struct DocumentRow: View {
     }
 }
 
-#Preview("Document List") {
-    NavigationStack {
-        DocumentListView()
+#if DEBUG
+struct DocumentListView_Previews: PreviewProvider {
+    static var previews: some View {
+        NavigationStack {
+            DocumentListView()
+        }
+        .modelContainer(PreviewSampleData.shared.container)
     }
-    .modelContainer(PreviewSampleData.shared.container)
 }
 
-#Preview("Document Row") {
-    DocumentRow(document: PreviewSampleData.shared.sampleDocument)
-        .padding()
+struct DocumentRow_Previews: PreviewProvider {
+    static var previews: some View {
+        DocumentRow(document: PreviewSampleData.shared.sampleDocument)
+            .padding()
+    }
 }
+#endif

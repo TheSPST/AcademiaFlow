@@ -11,188 +11,142 @@ struct PDFPreviewView: View {
     
     init(pdf: PDF, modelContext: ModelContext) {
         self.pdf = pdf
-        // Create the view model with a StateObject wrapper
         let viewModel = PDFViewModel(pdf: pdf, modelContext: modelContext)
         self._viewModel = StateObject(wrappedValue: viewModel)
     }
     
     var body: some View {
         HStack(spacing: 0) {
-            // Optional Thumbnail Sidebar
             if viewModel.showThumbnailView {
-                thumbnailSidebar
+                PDFThumbnailSidebar(viewModel: viewModel)
                     .frame(width: 200)
-                    .background(Color(NSColor.windowBackgroundColor))
             }
             
             VStack(spacing: 0) {
-                // Search bar
-                HStack {
-                    searchBar
-                    Spacer()
-                    
-                    Toggle(isOn: $viewModel.showThumbnailView) {
-                        Label("Thumbnails", systemImage: "sidebar.left")
-                    }
-                    .toggleStyle(.button)
-                    
-                    Toggle(isOn: $viewModel.showBookmarks) {
-                        Label("Bookmarks", systemImage: "bookmark")
-                    }
-                    .toggleStyle(.button)
-                    
-                    Toggle(isOn: $viewModel.showNotes) {
-                        Label("Notes", systemImage: "note.text")
-                    }
-                    .toggleStyle(.button)
-                    
-                    Toggle(isOn: $viewModel.showChatView) {
-                        Label("Chat", systemImage: "bubble.left.and.bubble.right")
-                    }
-                    .toggleStyle(.button)
-                    
-                    Spacer()
-                }
-                // PDF View with Toolbar
-                VStack(spacing: 0) {
-                    // Annotation Toolbar
-                    annotationToolbar
-                    
-                    // PDF View
-                    PDFKitView(viewModel: viewModel)
-                        .task {
-                            await viewModel.loadInitialData()
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .overlay {
-                            if viewModel.isLoading {
-                                ProgressView()
-                                    .controlSize(.small)
-                            }
-                            if let error = viewModel.loadError {
-                                ErrorView(error: error)
-                            }
-                        }
-                }
-                
-                // Toolbar
-                toolbar
+                PDFToolbar(viewModel: viewModel)
+                PDFContentView(viewModel: viewModel, errorHandler: errorHandler)
             }
             
-            // Bookmarks Sidebar
-            if viewModel.showBookmarks {
-                bookmarksSidebar
-                    .frame(width: 250)
-                    .background(Color(NSColor.windowBackgroundColor))
-            }
-            
-            // Notes Sidebar
-            if viewModel.showNotes {
-                notesSidebar
-                    .frame(width: 250)
-                    .background(Color(NSColor.windowBackgroundColor))
-            }
-            
-            // Add chat sidebar
-            if viewModel.showChatView {
-                chatSidebar
-                    .frame(width: 300)
-                    .background(Color(NSColor.windowBackgroundColor))
-            }
+            PDFSidebarStack(viewModel: viewModel)
         }
         .sheet(isPresented: $viewModel.isAddingNote) {
-            NavigationStack {
-                Form {
-                    TextField("Title", text: $viewModel.newNoteTitle)
-                    TextEditor(text: $viewModel.newNoteContent)
-                        .frame(height: 100)
-                    
-                    Section("Tags") {
-                        TagEditorView(tags: $viewModel.newNoteTags)
-                    }
+            AddNoteSheet(viewModel: viewModel)
+        }
+    }
+}
+
+private struct PDFToolbar: View {
+    @ObservedObject var viewModel: PDFViewModel
+    
+    var body: some View {
+        HStack {
+            // Zoom controls
+            HStack(spacing: 12) {
+                Button(action: viewModel.zoomOut) {
+                    Label("Zoom Out", systemImage: "minus.magnifyingglass")
                 }
-                .padding()
-                .navigationTitle("Add Note")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") {
-                            viewModel.isAddingNote = false
-                        }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Save") {
-                            viewModel.addNote()
-                        }
-                        .disabled(viewModel.newNoteTitle.isEmpty && viewModel.newNoteContent.isEmpty)
-                    }
+                
+                Button(action: viewModel.resetZoom) {
+                    Label("Actual Size", systemImage: "1.magnifyingglass")
+                }
+                
+                Button(action: viewModel.zoomIn) {
+                    Label("Zoom In", systemImage: "plus.magnifyingglass")
+                }
+                
+                Button(action: viewModel.fitToWidth) {
+                    Label("Fit to Width", systemImage: "arrow.up.left.and.down.right.magnifyingglass")
                 }
             }
-            .frame(minWidth: 400, minHeight: 300)
+            .labelStyle(.iconOnly)
+            
+            Divider()
+                .padding(.horizontal)
+            
+            // Page navigation
+            HStack(spacing: 12) {
+                Button(action: viewModel.goToPreviousPage) {
+                    Label("Previous Page", systemImage: "chevron.left")
+                }
+                
+                Text("\(viewModel.currentPage) of \(viewModel.totalPages)")
+                    .monospacedDigit()
+                
+                Button(action: viewModel.goToNextPage) {
+                    Label("Next Page", systemImage: "chevron.right")
+                }
+            }
+        }
+        .padding()
+        .background(Color(NSColor.windowBackgroundColor))
+        .frame(maxHeight: 50)
+    }
+}
+
+private struct PDFContentView: View {
+    @ObservedObject var viewModel: PDFViewModel
+    let errorHandler: ErrorHandler
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            searchBar
+            
+            // Annotation Toolbar
+            PDFAnnotationToolbar(viewModel: viewModel, errorHandler: errorHandler)
+            
+            // PDF View
+            PDFKitView(viewModel: viewModel)
+                .task {
+                    await viewModel.loadInitialData()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay {
+                    if viewModel.isLoading {
+                        LoadingView(message: "Loading PDF...")
+                    }
+                    if let error = viewModel.loadError {
+                        ErrorView(error: error)
+                    }
+                }
         }
     }
     
     private var searchBar: some View {
         HStack {
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                TextField("Search in PDF", text: $viewModel.searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: viewModel.searchText) { oldValue, newValue in
-                        viewModel.performSearch()
-                    }
-                if !viewModel.searchText.isEmpty {
-                    Button(action: { viewModel.searchText = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(8)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(8)
+            SearchField(
+                text: $viewModel.searchText,
+                isSearching: viewModel.isSearching,
+                currentResult: viewModel.currentSearchResult,
+                totalResults: viewModel.totalSearchResults,
+                onSearch: viewModel.performSearch,
+                onPrevious: viewModel.previousSearchResult,
+                onNext: viewModel.nextSearchResult
+            )
+            
             Spacer()
-            if viewModel.isSearching {
-                HStack(spacing: 8) {
-                    Text("\(viewModel.currentSearchResult) of \(viewModel.totalSearchResults)")
-                        .monospacedDigit()
-                    
-                    Button(action: viewModel.previousSearchResult) {
-                        Image(systemName: "chevron.up")
-                    }
-                    .disabled(viewModel.totalSearchResults == 0)
-                    
-                    Button(action: viewModel.nextSearchResult) {
-                        Image(systemName: "chevron.down")
-                    }
-                    .disabled(viewModel.totalSearchResults == 0)
-                }
-            }
+            
+            ViewToggleButtons(viewModel: viewModel)
         }
         .padding()
     }
+}
+
+private struct PDFAnnotationToolbar: View {
+    @ObservedObject var viewModel: PDFViewModel
+    let errorHandler: ErrorHandler
     
-    private var annotationToolbar: some View {
+    var body: some View {
         VStack(spacing: 8) {
-            // Annotation Type Selection
             HStack(spacing: 16) {
-                Picker("Annotation Type", selection: $viewModel.currentAnnotationType) {
-                    Image(systemName: "highlighter").tag(PDFViewModel.AnnotationType.highlight)
-                    Image(systemName: "underline").tag(PDFViewModel.AnnotationType.underline)
-                    Image(systemName: "strikethrough").tag(PDFViewModel.AnnotationType.strikethrough)
-                    Image(systemName: "note.text").tag(PDFViewModel.AnnotationType.note)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 200)
+                AnnotationTypePicker(selection: $viewModel.currentAnnotationType)
                 
-                ColorPicker("Annotation Color", selection: Binding(
+                AnnotationColorPicker(color: Binding(
                     get: { Color(viewModel.currentAnnotationColor) },
                     set: { viewModel.currentAnnotationColor = NSColor($0) }
                 ))
                 
                 Button(action: {
-                    Task { @MainActor in
+                    Task {
                         if let error = await viewModel.addAnnotation() {
                             errorHandler.handle(error)
                         }
@@ -206,43 +160,33 @@ struct PDFPreviewView: View {
                 }
                 .disabled(viewModel.lastAnnotations.isEmpty)
                 
-                Button(action: { viewModel.copySelectedText() }) {
+                Button(action: viewModel.copySelectedText) {
                     Label("Copy Text", systemImage: "doc.on.doc")
                 }
             }
             
-            // Annotation Editor (when editing)
             if viewModel.isEditingAnnotation,
                let annotation = viewModel.selectedAnnotation {
-                HStack {
-                    ColorPicker("Color", selection: Binding(
-                        get: { Color(annotation.color) },
-                        set: { viewModel.updateSelectedAnnotation(color: NSColor($0)) }
-                    ))
-                    
-                    if annotation.type == PDFAnnotationSubtype.text.rawValue {
-                        TextField("Note", text: Binding(
-                            get: { annotation.contents ?? "" },
-                            set: { viewModel.updateSelectedAnnotation(contents: $0) }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-                    }
-                    
-                    Button("Done") {
+                AnnotationEditor(
+                    annotation: annotation,
+                    onUpdate: viewModel.updateSelectedAnnotation,
+                    onDone: {
                         viewModel.isEditingAnnotation = false
                         viewModel.selectedAnnotation = nil
                     }
-                }
-                .padding(.horizontal)
-                .transition(.move(edge: .top))
+                )
             }
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
         .background(Color(NSColor.windowBackgroundColor))
     }
+}
+
+struct PDFThumbnailSidebar: View {
+    @ObservedObject var viewModel: PDFViewModel
     
-    private var thumbnailSidebar: some View {
+    var body: some View {
         ScrollView {
             LazyVStack(spacing: 8) {
                 ForEach(0..<viewModel.totalPages, id: \.self) { index in
@@ -262,9 +206,14 @@ struct PDFPreviewView: View {
             }
             .padding(.vertical, 8)
         }
+        .background(Color(NSColor.windowBackgroundColor))
     }
+}
+
+struct PDFBookmarksSidebar: View {
+    @ObservedObject var viewModel: PDFViewModel
     
-    private var bookmarksSidebar: some View {
+    var body: some View {
         VStack {
             HStack {
                 Text("Bookmarks")
@@ -288,9 +237,14 @@ struct PDFPreviewView: View {
                 }
             }
         }
+        .background(Color(NSColor.windowBackgroundColor))
     }
+}
+
+struct PDFNotesSidebar: View {
+    @ObservedObject var viewModel: PDFViewModel
     
-    private var notesSidebar: some View {
+    var body: some View {
         VStack {
             HStack {
                 Text("Notes")
@@ -331,9 +285,14 @@ struct PDFPreviewView: View {
                 }
             }
         }
+        .background(Color(NSColor.windowBackgroundColor))
     }
+}
+
+struct PDFChatSidebar: View {
+    @ObservedObject var viewModel: PDFViewModel
     
-    private var chatSidebar: some View {
+    var body: some View {
         VStack {
             Text("Chat")
                 .font(.headline)
@@ -386,49 +345,40 @@ struct PDFPreviewView: View {
             }
             .padding()
         }
+        .background(Color(NSColor.windowBackgroundColor))
     }
+}
+
+private struct AddNoteSheet: View {
+    @ObservedObject var viewModel: PDFViewModel
     
-    private var toolbar: some View {
-        HStack {
-            // Zoom controls
-            HStack(spacing: 12) {
-                Button(action: viewModel.zoomOut) {
-                    Label("Zoom Out", systemImage: "minus.magnifyingglass")
-                }
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Title", text: $viewModel.newNoteTitle)
+                TextEditor(text: $viewModel.newNoteContent)
+                    .frame(height: 100)
                 
-                Button(action: viewModel.resetZoom) {
-                    Label("Actual Size", systemImage: "1.magnifyingglass")
-                }
-                
-                Button(action: viewModel.zoomIn) {
-                    Label("Zoom In", systemImage: "plus.magnifyingglass")
-                }
-                
-                Button(action: viewModel.fitToWidth) {
-                    Label("Fit to Width", systemImage: "arrow.up.left.and.down.right.magnifyingglass")
+                Section("Tags") {
+                    TagEditorView(tags: $viewModel.newNoteTags)
                 }
             }
-            .labelStyle(.iconOnly)
-            
-            Divider()
-                .padding(.horizontal)
-            
-            // Page navigation
-            HStack(spacing: 12) {
-                Button(action: viewModel.goToPreviousPage) {
-                    Label("Previous Page", systemImage: "chevron.left")
+            .padding()
+            .navigationTitle("Add Note")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        viewModel.isAddingNote = false
+                    }
                 }
-                
-                Text("\(viewModel.currentPage) of \(viewModel.totalPages)")
-                    .monospacedDigit()
-                
-                Button(action: viewModel.goToNextPage) {
-                    Label("Next Page", systemImage: "chevron.right")
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        viewModel.addNote()
+                    }
+                    .disabled(viewModel.newNoteTitle.isEmpty && viewModel.newNoteContent.isEmpty)
                 }
             }
         }
-        .padding()
-        .background(Color(NSColor.windowBackgroundColor))
-        .frame(maxHeight: 50)
+        .frame(minWidth: 400, minHeight: 300)
     }
 }
