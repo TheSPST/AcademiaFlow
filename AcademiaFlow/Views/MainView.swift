@@ -37,45 +37,55 @@ struct MainView: View {
     var body: some View {
         Group {
             if container != nil {
-                NavigationSplitView {
-                    List(NavigationType.allCases, selection: $selectedNavigation) { type in
-                        NavigationLink(value: type) {
-                            Label(type.title, systemImage: type.icon)
+                ZStack {
+                    NavigationSplitView {
+                        List(NavigationType.allCases, selection: $selectedNavigation) { type in
+                            NavigationLink(value: type) {
+                                Label(type.title, systemImage: type.icon)
+                            }
+                        }
+                        .navigationTitle("AcademiaFlow")
+                        .onChange(of: selectedNavigation) { _, newValue in
+                            // Reset selections when navigation changes
+                            selectedPDF = nil
+                            selectedDocument = nil
+                            selectedReference = nil
+                            selectedNote = nil
+                        }
+                    } content: {
+                        if let selected = selectedNavigation {
+                            selected.destinationView(
+                                selectedPDF: $selectedPDF,
+                                selectedDocument: $selectedDocument,
+                                selectedReference: $selectedReference,
+                                selectedNote: $selectedNote
+                            )
+                        } else {
+                            Text("Select a section from the sidebar")
+                                .foregroundStyle(.secondary)
+                        }
+                    } detail: {
+                        if let selected = selectedNavigation {
+                            selected.detailView(
+                                modelContext: modelContext,
+                                selectedPDF: $selectedPDF,
+                                selectedDocument: $selectedDocument,
+                                selectedReference: $selectedReference,
+                                selectedNote: $selectedNote
+                            )
+                        } else {
+                            Text("Select a section")
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .navigationTitle("AcademiaFlow")
-                    .onChange(of: selectedNavigation) { _, newValue in
-                        // Reset selections when navigation changes
-                        selectedPDF = nil
-                        selectedDocument = nil
-                        selectedReference = nil
-                        selectedNote = nil
-                    }
-                } content: {
-                    if let selected = selectedNavigation {
-                        selected.destinationView(
-                            selectedPDF: $selectedPDF,
-                            selectedDocument: $selectedDocument,
-                            selectedReference: $selectedReference,
-                            selectedNote: $selectedNote
-                        )
-                    } else {
-                        Text("Select a section from the sidebar")
-                            .foregroundStyle(.secondary)
-                    }
-                } detail: {
-                    if let selected = selectedNavigation {
-                        selected.detailView(
-                            modelContext: modelContext,
-                            selectedPDF: $selectedPDF,
-                            selectedDocument: $selectedDocument,
-                            selectedReference: $selectedReference,
-                            selectedNote: $selectedNote
-                        )
-                    } else {
-                        Text("Select a section")
-                            .foregroundStyle(.secondary)
-                    }
+                    
+                    FloatingChatButton(
+                        selectedNavigation: $selectedNavigation,
+                        selectedDocument: $selectedDocument,
+                        selectedPDF: $selectedPDF,
+                        selectedNote: $selectedNote,
+                        selectedReference: $selectedReference
+                    )
                 }
             } else {
                 ProgressView()

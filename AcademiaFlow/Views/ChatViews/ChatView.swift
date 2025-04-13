@@ -7,6 +7,7 @@ struct ChatView: View {
     @State private var isLoading = false
     @State private var streamingText = ""
     @State private var error: String?
+    @State private var isTyping = false
     
     let chatService = ChatService()
     let context: String
@@ -32,6 +33,18 @@ struct ChatView: View {
                             )
                         )
                     }
+                    if isTyping {
+                        HStack(spacing: 4) {
+                            ForEach(0..<3) { _ in
+                                Circle()
+                                    .frame(width: 6, height: 6)
+                                    .opacity(0.5)
+                            }
+                        }
+                        .padding()
+                        .background(Color.gray.opacity(0.2))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
                 }
                 .padding()
             }
@@ -54,14 +67,17 @@ struct ChatView: View {
             .padding()
         }
         .task {
-            do {
-                // Check chat service health on view appear
-                if try await chatService.checkHealth() == false {
-                    error = "Chat service is not available"
-                }
-            } catch {
-                self.error = "Failed to connect to chat service"
+            await checkServiceHealth()
+        }
+    }
+    
+    private func checkServiceHealth() async {
+        do {
+            if try await chatService.checkHealth() == false {
+                error = "Chat service is not available"
             }
+        } catch {
+            self.error = "Failed to connect to chat service"
         }
     }
     
@@ -70,6 +86,7 @@ struct ChatView: View {
         messageText = ""
         isLoading = true
         error = nil
+        isTyping = true
         
         Task {
             do {
@@ -79,6 +96,18 @@ struct ChatView: View {
                     format: .markdown
                 ) { @MainActor chunk in
                     streamingText += chunk
+                } onStatus: { status in
+                    switch status {
+                    case .sending:
+                        isTyping = true
+                    case .delivered:
+                        isTyping = false
+                    case .failed:
+                        error = "Failed to deliver message"
+                        isTyping = false
+                    default:
+                        break
+                    }
                 }
                 
                 messages.append(
@@ -90,12 +119,12 @@ struct ChatView: View {
                 )
                 streamingText = ""
             } catch let chatError as ChatService.ChatError {
-                // Use the improved error descriptions
                 self.error = chatError.errorDescription
             } catch {
                 self.error = error.localizedDescription
             }
             isLoading = false
+            isTyping = false
         }
     }
 }
