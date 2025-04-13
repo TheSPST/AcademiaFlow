@@ -40,6 +40,26 @@ final class Document {
         self.updatedAt = Date()
         self.filePath = filePath
     }
+    
+    // ADD: Method to get summarized content for chat
+    func chatContext(maxLength: Int = 4000) -> String {
+        if content.count <= maxLength {
+            return content
+        }
+        
+        // Get first and last parts of content for context
+        let halfLength = maxLength / 2
+        let firstPart = String(content.prefix(halfLength))
+        let lastPart = String(content.suffix(halfLength))
+        
+        return """
+        \(firstPart)
+        
+        [Content truncated...]
+        
+        \(lastPart)
+        """
+    }
 }
 
 // Supporting enums
