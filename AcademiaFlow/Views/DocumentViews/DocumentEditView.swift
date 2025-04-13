@@ -1,6 +1,44 @@
 import SwiftUI
 import SwiftData
 import RichTextKit
+
+@MainActor
+class DocumentEditViewModel: ObservableObject {
+    @Published var isEditingTitle = false
+    @Published var titleText: String
+    @Published var showTitleError = false
+    let document: Document
+    
+    init(document: Document) {
+        self.document = document
+        self.titleText = document.title
+    }
+    
+    func updateTitle() {
+        let newTitle = titleText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if newTitle.isEmpty {
+            showTitleError = true
+            titleText = document.title
+            return
+        }
+        document.title = newTitle
+        document.updatedAt = Date()
+        isEditingTitle = false
+        showTitleError = false
+    }
+    
+    func startEditingTitle() {
+        titleText = document.title
+        isEditingTitle = true
+    }
+    
+    func cancelEditingTitle() {
+        titleText = document.title
+        isEditingTitle = false
+        showTitleError = false
+    }
+}
+
 @MainActor
 struct DocumentEditView: View {
     @Environment(\.modelContext) private var modelContext
@@ -8,6 +46,14 @@ struct DocumentEditView: View {
     @Binding var isEditing: Bool
     @Binding var contentText: NSAttributedString
     @StateObject var context = RichTextContext()
+    @StateObject private var viewModel: DocumentEditViewModel
+    
+    init(document: Document, isEditing: Binding<Bool>, contentText: Binding<NSAttributedString>) {
+        self.document = document
+        self._isEditing = isEditing
+        self._contentText = contentText
+        self._viewModel = StateObject(wrappedValue: DocumentEditViewModel(document: document))
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -44,22 +90,59 @@ struct DocumentEditView: View {
             }
         }
         .background(Color(.textBackgroundColor))
-        .focusedSceneValue(\.richTextContext, context) // <– REQUIRED for commands to work
-//        .commands {
-//            RichTextCommands() // <– This adds undo/redo/copy/paste/cut etc
-//        }
+        .focusedSceneValue(\.richTextContext, context)
+        .alert("Invalid Title", isPresented: $viewModel.showTitleError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Document title cannot be empty.")
+        }
     }
     
     private var documentHeader: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Title
-            if isEditing {
-                TextField("Document Title", text: $document.title)
-                    .font(.system(size: 24, weight: .bold))
-                    .textFieldStyle(.plain)
-            } else {
-                Text(document.title)
-                    .font(.system(size: 24, weight: .bold))
+            Group {
+                if viewModel.isEditingTitle {
+                    HStack {
+                        TextField("Document Title", text: $viewModel.titleText)
+                            .font(.system(size: 24, weight: .bold))
+                            .textFieldStyle(.plain)
+                            .onSubmit {
+                                viewModel.updateTitle()
+                            }
+                        
+                        Button {
+                            viewModel.updateTitle()
+                        } label: {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Button {
+                            viewModel.cancelEditingTitle()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    HStack {
+                        Text(document.title)
+                            .font(.system(size: 24, weight: .bold))
+                        
+                        if isEditing {
+                            Button {
+                                viewModel.startEditingTitle()
+                            } label: {
+                                Image(systemName: "pencil.circle")
+                                    .foregroundStyle(.blue)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
             }
             
             // Document Info
@@ -95,6 +178,7 @@ struct DocumentEditView: View {
         }
     }
 }
+
 #Preview("Document Edit") {
     DocumentEditPreviewWrapper()
 }
@@ -131,15 +215,4 @@ private extension DocumentEditView {
         isMac ? .top : .bottom
     }
 }
-//extension DocumentEditView {
-//    @ToolbarContentBuilder
-//    func documentToolbar(_ isPresented: Binding<Bool>) -> some ToolbarContent {
-//        ToolbarItem(placement: .automatic) {
-//            Toggle(isOn: isPresented) {
-//                Image.richTextFormatBrush
-//                    .resizable()
-//                    .aspectRatio(1, contentMode: .fit)
-//            }
-//        }
-//    }
-//}
+
