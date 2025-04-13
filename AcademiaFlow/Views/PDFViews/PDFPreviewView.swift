@@ -288,7 +288,22 @@ struct PDFNotesSidebar: View {
         .background(Color(NSColor.windowBackgroundColor))
     }
 }
-
+struct MarkdownTextView: View {
+    let message: String
+    
+    var body: some View {
+        if let attributed = try? AttributedString(markdown: message) {
+            Text(attributed)
+                .font(.body)
+                .padding()
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(8)
+        } else {
+            Text("Invalid Markdown")
+                .foregroundColor(.red)
+        }
+    }
+}
 struct PDFChatSidebar: View {
     @ObservedObject var viewModel: PDFViewModel
     
@@ -305,12 +320,7 @@ struct PDFChatSidebar: View {
                             Text("Q: \(message.question)")
                                 .font(.subheadline)
                                 .fontWeight(.medium)
-                            
-                            Text(message.answer)
-                                .font(.body)
-                                .padding()
-                                .background(Color.secondary.opacity(0.1))
-                                .cornerRadius(8)
+                            MarkdownTextView(message: message.answer)
                         }
                     }
                 }

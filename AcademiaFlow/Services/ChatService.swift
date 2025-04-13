@@ -2,6 +2,14 @@ import Foundation
 
 actor ChatService {
     private let baseURL = "http://127.0.0.1:1234/v1"
+    private let timeout: TimeInterval = 30
+    
+    enum ChatError: Error {
+        case serverError(Int)
+        case noResponse
+        case decodingError
+        case networkTimeout
+    }
     
     struct ChatMessage: Codable {
         let role: String
@@ -41,18 +49,41 @@ actor ChatService {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.timeoutInterval = timeout
         urlRequest.httpBody = try JSONEncoder().encode(request)
         
         let (data, response) = try await URLSession.shared.data(for: urlRequest)
         
-        // Debug: Print status code and raw response
-        if let httpResp = response as? HTTPURLResponse {
-            print("Status Code:", httpResp.statusCode)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw ChatError.noResponse
         }
         
-        print("Raw JSON:", String(data: data, encoding: .utf8) ?? "No response data")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw ChatError.serverError(httpResponse.statusCode)
+        }
         
-        let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
-        return decoded.choices.first?.message.content ?? "No response"
+        do {
+            let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
+            return decoded.choices.first?.message.content ?? "No response"
+        } catch {
+            throw ChatError.decodingError
+        }
+    }
+    
+    func checkHealth() async throws -> Bool {
+        guard let url = URL(string: "\(baseURL)/health") else {
+            throw URLError(.badURL)
+        }
+        
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.timeoutInterval = 5
+        
+        do {
+            let (_, response) = try await URLSession.shared.data(for: urlRequest)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            return false
+        }
     }
 }
