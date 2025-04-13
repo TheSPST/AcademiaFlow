@@ -1,9 +1,59 @@
 import SwiftUI
 import SwiftData
 
+@MainActor
+class DocumentPreviewViewModel: ObservableObject {
+    @Published var formattedContent: NSAttributedString = NSAttributedString()
+    @Published var isLoading = true
+    let document: Document
+    
+    init(document: Document) {
+        self.document = document
+        Task {
+            await loadContent()
+        }
+    }
+    
+    func loadContent() async {
+        guard let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            print("❌ Cannot access documents directory")
+            return
+        }
+        
+        let fileURL = documentsDirectory.appendingPathComponent(document.filePath)
+        
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let loadedAttributedString = try NSAttributedString(
+                data: data,
+                options: [.documentType: NSAttributedString.DocumentType.rtf],
+                documentAttributes: nil
+            )
+            await MainActor.run {
+                self.formattedContent = loadedAttributedString
+                self.isLoading = false
+            }
+        } catch {
+            print("❌ Failed to read RTF: \(error.localizedDescription)")
+            await MainActor.run {
+                self.formattedContent = NSAttributedString(string: document.content)
+                self.isLoading = false
+            }
+        }
+    }
+}
+
+
+
 struct DocumentPreviewView: View {
     let document: Document
+    @StateObject private var viewModel: DocumentPreviewViewModel
     @State private var selectedFormat: PreviewFormat = .formatted
+    
+    init(document: Document) {
+            self.document = document
+            self._viewModel = StateObject(wrappedValue: DocumentPreviewViewModel(document: document))
+    }
     
     enum PreviewFormat {
         case formatted
@@ -21,8 +71,11 @@ struct DocumentPreviewView: View {
             .padding()
             
             ScrollView {
-                if selectedFormat == .formatted {
-                    FormattedDocumentView(document: document)
+                if viewModel.isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if selectedFormat == .formatted {
+                    FormattedDocumentView(document: document, attributedContent: viewModel.formattedContent)
                 } else {
                     PlainDocumentView(document: document)
                 }
@@ -33,7 +86,7 @@ struct DocumentPreviewView: View {
 
 struct FormattedDocumentView: View {
     let document: Document
-    
+    let attributedContent: NSAttributedString
     var body: some View {
         VStack(spacing: 24) {
             // Title Section
@@ -44,14 +97,16 @@ struct FormattedDocumentView: View {
                     .padding(.top)
                 
                 if !document.tags.isEmpty {
-                    HStack {
-                        ForEach(document.tags, id: \.self) { tag in
-                            Text(tag)
-                                .font(.caption)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.blue.opacity(0.1))
-                                .cornerRadius(8)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack {
+                            ForEach(document.tags, id: \.self) { tag in
+                                Text(tag)
+                                    .font(.caption)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.blue.opacity(0.1))
+                                    .cornerRadius(8)
+                            }
                         }
                     }
                 }
@@ -59,16 +114,8 @@ struct FormattedDocumentView: View {
             .frame(maxWidth: .infinity)
             .padding(.bottom)
             
-            // Content Sections
-            if let sections = parseContentSections(document.content) {
-                ForEach(sections) { section in
-                    FormattedSection(section: section)
-                }
-            } else {
-                Text(document.content)
-                    .font(.system(.body, design: .serif))
-                    .lineSpacing(6)
-            }
+            AttributedContentView(content: attributedContent)
+                .padding(.horizontal)
             
             // References Section
             if !document.references.isEmpty {
@@ -95,6 +142,23 @@ struct PlainDocumentView: View {
         .frame(maxWidth: 800)
     }
 }
+struct AttributedContentView: NSViewRepresentable {
+    let content: NSAttributedString
+    
+    func makeNSView(context: Context) -> NSTextView {
+        let textView = NSTextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.backgroundColor = .clear
+        textView.textContainer?.lineFragmentPadding = 0
+        return textView
+    }
+    
+    func updateNSView(_ nsView: NSTextView, context: Context) {
+        nsView.textStorage?.setAttributedString(content)
+    }
+}
+
 
 struct FormattedSection: View {
     let section: DocumentSection
