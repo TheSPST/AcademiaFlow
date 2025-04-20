@@ -326,32 +326,63 @@ struct PDFChatSidebar: View {
                 }
                 .padding()
             }
-            
-            HStack {
-                TextField("Ask a question about this page...", text: $viewModel.currentQuestion)
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(viewModel.isProcessingQuestion)
-                
-                Button {
-                    // Get the current page text and pass it to askQuestion
-                    if let selectedPage = viewModel.selectedPage {
-                        Task {
-                            await viewModel.askQuestion(pageText: selectedPage.string ?? "")
+            VStack {
+                HStack {
+                    Button {
+                        viewModel.currentQuestion = "Give me a brief summary"
+                        if let selectedPage = viewModel.selectedPage {
+                            Task {
+                                await viewModel.askQuestion(pageText: selectedPage.string ?? "")
+                            }
+                        } else {
+                            Task {
+                                await viewModel.askQuestion(pageText: "")
+                            }
                         }
-                    } else {
-                        Task {
-                            await viewModel.askQuestion(pageText: "")
-                        }
+                    } label: {
+                        Text("Give me a brief summary")
                     }
-                } label: {
-                    if viewModel.isProcessingQuestion {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.up.circle.fill")
+                    Button {
+                        viewModel.currentQuestion = "Give me a brief summary"
+                        if let selectedPage = viewModel.selectedPage {
+                            Task {
+                                await viewModel.askQuestion(pageText: selectedPage.string ?? "")
+                            }
+                        } else {
+                            Task {
+                                await viewModel.askQuestion(pageText: "")
+                            }
+                        }
+                    } label: {
+                        Text("Give me a brief summary")
                     }
                 }
-                .disabled(viewModel.currentQuestion.isEmpty || viewModel.isProcessingQuestion)
+                HStack {
+                    TextField("Ask a question about this page...", text: $viewModel.currentQuestion)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(viewModel.isProcessingQuestion)
+                    
+                    Button {
+                        // Get the current page text and pass it to askQuestion
+                        if let selectedPage = viewModel.selectedPage {
+                            Task {
+                                await viewModel.askQuestion(pageText: selectedPage.string ?? "")
+                            }
+                        } else {
+                            Task {
+                                await viewModel.askQuestion(pageText: "")
+                            }
+                        }
+                    } label: {
+                        if viewModel.isProcessingQuestion {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.up.circle.fill")
+                        }
+                    }
+                    .disabled(viewModel.currentQuestion.isEmpty || viewModel.isProcessingQuestion)
+                }
             }
             .padding()
         }
