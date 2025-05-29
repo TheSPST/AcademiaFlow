@@ -27,6 +27,8 @@ extension ModelContainer {
 struct MainView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var errorHandler: ErrorHandler
+    @Environment(\.chatService) private var chatService: ChatService?
+
     @State private var selectedNavigation: NavigationType? = .documents
     @State private var selectedPDF: PDF?
     @State private var selectedDocument: Document?
@@ -68,6 +70,8 @@ struct MainView: View {
                         if let selected = selectedNavigation {
                             selected.detailView(
                                 modelContext: modelContext,
+                                errorHandler: errorHandler,
+                                chatService: chatService,
                                 selectedPDF: $selectedPDF,
                                 selectedDocument: $selectedDocument,
                                 selectedReference: $selectedReference,
@@ -150,6 +154,8 @@ enum NavigationType: String, CaseIterable, @preconcurrency Identifiable {
     @ViewBuilder
     func detailView(
         modelContext: ModelContext,
+        errorHandler: ErrorHandler,
+        chatService: ChatService?,
         selectedPDF: Binding<PDF?>,
         selectedDocument: Binding<Document?>,
         selectedReference: Binding<Reference?>,
@@ -165,7 +171,10 @@ enum NavigationType: String, CaseIterable, @preconcurrency Identifiable {
             }
         case .pdfs:
             if let pdf = selectedPDF.wrappedValue {
-                PDFPreviewView(pdf: pdf, modelContext: modelContext)
+                PDFPreviewView(pdf: pdf, 
+                               modelContext: modelContext, 
+                               errorHandler: errorHandler, 
+                               chatService: chatService)
                     .id(pdf.id)
             } else {
                 Text("Select a PDF")

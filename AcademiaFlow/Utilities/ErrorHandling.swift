@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+
 // MARK: - Base Error Protocol
 protocol AppError: LocalizedError, Identifiable {
     var id: UUID { get }
@@ -32,7 +33,7 @@ enum DocumentError: AppError {
     
     var errorDescription: String? {
         switch self {
-        case .saveFailure(let error): 
+        case .saveFailure(let error):
             return "Failed to save document: \(error.localizedDescription)"
         case .loadFailure(let error):
             return "Failed to load document: \(error.localizedDescription)"
@@ -171,6 +172,120 @@ enum ReferenceError: AppError {
     }
 }
 
+enum CoreError: AppError {
+    case fileNotFound(String)
+    case fileReadError(String, Error?)
+    case directoryCreationFailed(String, Error?)
+    case exportFailed(String, Error?)
+    case general(String, Error? = nil)
+    case unknown
+    case versionCreationError(String)
+    case versionLoadError(String)
+    case databaseError(Error)
+    case invalidData
+    case chatServiceError(String)
+    case chatConnectionError(String)
+    case chatResponseError(String)
+    case chatRequestEncodingError(Error)
+    case pdfTextExtractionFailed
+    case pdfSummarizationFailed
+    case pdfLoadFailed(Error?)
+
+    var id: UUID { UUID() }
+
+    var title: String {
+        switch self {
+        case .fileNotFound: return "File Not Found"
+        case .fileReadError: return "File Read Error"
+        case .directoryCreationFailed: return "Directory Creation Failed"
+        case .exportFailed: return "Export Failed"
+        case .general: return "General Error"
+        case .unknown: return "Unknown Error"
+        case .versionCreationError: return "Version Creation Error"
+        case .versionLoadError: return "Version Load Error"
+        case .databaseError: return "Database Error"
+        case .invalidData: return "Invalid Data"
+        case .chatServiceError: return "Chat Service Error"
+        case .chatConnectionError: return "Chat Connection Error"
+        case .chatResponseError: return "Chat Response Error"
+        case .chatRequestEncodingError: return "Chat Request Encoding Error"
+        case .pdfTextExtractionFailed: return "PDF Text Extraction Failed"
+        case .pdfSummarizationFailed: return "PDF Summarization Failed"
+        case .pdfLoadFailed: return "PDF Load Failed"
+        }
+    }
+
+    var errorDescription: String? {
+        switch self {
+        case .fileNotFound(let path):
+            return "File not found at path: \(path)"
+        case .fileReadError(let path, let underlyingError):
+            var message = "Failed to read file at path: \(path)."
+            if let underlyingError {
+                message += " System error: \(underlyingError.localizedDescription)"
+            }
+            return message
+        case .directoryCreationFailed(let path, let underlyingError):
+            var message = "Failed to create directory at path: \(path)."
+            if let underlyingError {
+                message += " System error: \(underlyingError.localizedDescription)"
+            }
+            return message
+        case .exportFailed(let format, let underlyingError):
+            var message = "Export to \(format) failed."
+            if let underlyingError {
+                message += " System error: \(underlyingError.localizedDescription)"
+            }
+            return message
+        case .general(let message, let underlyingError):
+            var fullMessage = message
+            if let underlyingError {
+                fullMessage += " System error: \(underlyingError.localizedDescription)"
+            }
+            return fullMessage
+        case .unknown:
+            return "An unknown error occurred."
+        case .versionCreationError(let message):
+            return "Failed to create document version: \(message)"
+        case .versionLoadError(let message):
+            return "Failed to load document version: \(message)"
+        case .databaseError(let error):
+            return "A database error occurred: \(error.localizedDescription)"
+        case .invalidData:
+            return "Invalid data encountered."
+        case .chatServiceError(let message):
+            return "Chat service error: \(message)"
+        case .chatConnectionError(let message):
+            return "Chat connection error: \(message)"
+        case .chatResponseError(let message):
+            return "Chat response error: \(message)"
+        case .chatRequestEncodingError(let error):
+            return "Chat request encoding error: \(error.localizedDescription)"
+        case .pdfTextExtractionFailed:
+            return "Failed to extract text from the PDF. The PDF might be image-based or corrupted."
+        case .pdfSummarizationFailed:
+            return "Failed to generate an offline summary for the PDF."
+        case .pdfLoadFailed(let underlyingError):
+            var message = "Failed to load PDF document."
+            if let underlyingError {
+                message += " System error: \(underlyingError.localizedDescription)"
+            }
+            return message
+        }
+    }
+
+    var recoveryAction: String? {
+        switch self {
+        case .chatConnectionError, .chatServiceError:
+            return "Try again"
+        case .pdfTextExtractionFailed, .pdfSummarizationFailed, .pdfLoadFailed:
+            return nil
+        default:
+            return nil
+        }
+    }
+}
+
 // MARK: - Error Handler
 @MainActor
 class ErrorHandler: ObservableObject {
@@ -207,7 +322,6 @@ struct ErrorHandling: ViewModifier {
                 }
                 if error.recoveryAction != nil {
                     Button("Try Again") {
-                        // Handle retry action
                         errorHandler.dismiss()
                     }
                 }

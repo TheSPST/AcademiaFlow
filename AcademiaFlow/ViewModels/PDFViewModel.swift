@@ -1,6 +1,7 @@
 import SwiftUI
 import PDFKit
 import SwiftData
+import NaturalLanguage
 
 /// ViewModel for handling PDF document viewing and annotation
 @MainActor
@@ -88,13 +89,15 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFNa
     private let pdf: PDF
     private let modelContext: ModelContext
     private var document: PDFDocument?
-    private let chatService = ChatService()
+    private let chatService: ChatService?
+    private let errorHandler: ErrorHandler
     private var shortcutMonitor: Any?
     private let minZoom: CGFloat = 0.25
     private let maxZoom: CGFloat = 4.0
     private let zoomStep: CGFloat = 1.25
     private var lastScrollPosition: CGPoint?
-    
+    private let offlineSummarizationService = OfflineSummarizationService()
+
     // MARK: - Types
     enum AnnotationType {
         case highlight
@@ -114,12 +117,15 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFNa
     }
     
     // MARK: - Initialization
-    init(pdf: PDF, modelContext: ModelContext) {
+    @MainActor
+    init(pdf: PDF, modelContext: ModelContext, errorHandler: ErrorHandler, chatService: ChatService? = nil) {
         self.pdf = pdf
         self.modelContext = modelContext
+        self.errorHandler = errorHandler
+        self.chatService = chatService
+        self.annotationService = PDFAnnotationService(modelContainer: modelContext.container)
         
         Task { @MainActor in
-            self.annotationService = PDFAnnotationService(modelContainer: modelContext.container)
             await self.loadInitialData()
             self.setupShortcuts()
         }
@@ -496,7 +502,16 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFNa
     }
     
     @MainActor
-    func askQuestion(pageText: String) async {
+    func askQuestion(pageText: String = "") async {
+        guard let chatService = self.chatService else {
+            let error = CoreError.chatServiceError("Chat service is not available.")
+            self.errorHandler.handle(error)
+            self.chatMessages.append((question: currentQuestion, answer: "Error: Chat service not configured."))
+            self.isProcessingQuestion = false
+            self.currentQuestion = ""
+            return
+        }
+        
         guard !currentQuestion.isEmpty else { return }
         
         isProcessingQuestion = true
@@ -511,6 +526,52 @@ class PDFViewModel: ObservableObject, PDFViewModelProtocol, PDFSearchable, PDFNa
         }
         
         isProcessingQuestion = false
+    }
+    
+    @MainActor
+    private func generateAndDisplayOfflineSummary() async {
+        guard let pdfDocument = self.document else {
+            // This case should ideally be caught by loadPDF failure
+            let error = CoreError.pdfLoadFailed(nil) // Or a more specific "document not available"
+            errorHandler.handle(error)
+            self.chatMessages.insert((question: "Offline Summary Error", answer: error.localizedDescription), at: 0)
+            return
+        }
+        
+        guard let fullText = pdfDocument.string, !fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let message = "PDF contains no text or could not extract text to summarize."
+            // Optionally, differentiate image-only PDFs from truly empty ones if PDFKit provides that info.
+            self.chatMessages.insert((question: "Offline Summary", answer: message), at: 0)
+            // We don't necessarily need to show an error toast for this, it's a content issue.
+            // errorHandler.handle(CoreError.pdfTextExtractionFailed)
+            return
+        }
+        
+        let summary = await offlineSummarizationService.summarize(text: fullText, sentenceCount: 5) // Adjust sentenceCount as needed
+        
+        if summary.isEmpty {
+            // This could mean the summarization logic itself failed or returned empty for a valid reason (e.g., text too short and unsummarizable by the logic)
+            let error = CoreError.pdfSummarizationFailed
+            errorHandler.handle(error)
+            self.chatMessages.insert((question: "Offline Summary Error", answer: error.localizedDescription), at: 0)
+        } else {
+            self.chatMessages.insert((question: "PDF Summary (Offline)", answer: summary), at: 0)
+        }
+    }
+
+    /// Call this method when the user intends to open the chat.
+    /// It will ensure an offline summary is generated and displayed if not already present.
+    @MainActor
+    func openChatWithOfflineSummary() async {
+        // Check if a summary (success or known non-summarizable state) is already the first message
+        let firstMessageIsSummary = chatMessages.first?.question == "PDF Summary (Offline)"
+        let firstMessageIsError = chatMessages.first?.question == "Offline Summary Error"
+        let firstMessageIsNoText = chatMessages.first?.question == "Offline Summary" && (chatMessages.first?.answer.contains("no text") == true)
+
+        if !firstMessageIsSummary && !firstMessageIsError && !firstMessageIsNoText {
+            await generateAndDisplayOfflineSummary()
+        }
+        self.showChatView = true
     }
     
     nonisolated func asyncCleanup() {

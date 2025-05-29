@@ -11,6 +11,9 @@ import SwiftData
 @main
 struct AcademiaFlowApp: App {
     @StateObject private var errorHandler = ErrorHandler()
+    // CHANGE: Instantiate ChatService as a regular constant
+    private let chatService = ChatService() 
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -22,6 +25,8 @@ struct AcademiaFlowApp: App {
                     StoredAnnotation.self
                 ])
                 .environmentObject(errorHandler)
+                // CHANGE: Inject ChatService using custom environment key
+                .environment(\.chatService, chatService)
         }
     }
 }

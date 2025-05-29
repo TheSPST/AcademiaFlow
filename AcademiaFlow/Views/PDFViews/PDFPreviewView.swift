@@ -5,13 +5,15 @@ import AppKit
 
 struct PDFPreviewView: View {
     @Environment(\.modelContext) private var modelContext
-    @EnvironmentObject private var errorHandler: ErrorHandler
+    @EnvironmentObject private var errorHandler: ErrorHandler 
+    @Environment(\.chatService) private var chatService: ChatService? 
+
     @StateObject private var viewModel: PDFViewModel
     let pdf: PDF
     
-    init(pdf: PDF, modelContext: ModelContext) {
+    init(pdf: PDF, modelContext: ModelContext, errorHandler: ErrorHandler, chatService: ChatService?) {
         self.pdf = pdf
-        let viewModel = PDFViewModel(pdf: pdf, modelContext: modelContext)
+        let viewModel = PDFViewModel(pdf: pdf, modelContext: modelContext, errorHandler: errorHandler, chatService: chatService)
         self._viewModel = StateObject(wrappedValue: viewModel)
     }
     
